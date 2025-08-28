@@ -17,10 +17,49 @@
 
 namespace Algorithm
 {
-    void ProcessEdges(vtkPolyData* mesh, std::vector<std::pair<int, int>>& edgeVidsVector,
-                      std::vector<std::unordered_set<int>>& adjacencyMatrix)
+    void InitializeEdgeTable(vtkPolyData* mesh, std::vector<std::pair<int, int>>& edgeVidsVector,
+                             std::vector<std::vector<int>>& triangleVidsVector)
     {
         edgeVidsVector.clear();
+
+        const auto cellsCnt = mesh->GetNumberOfCells();
+        triangleVidsVector = std::vector<std::vector<int>>(cellsCnt);
+
+        std::unordered_set<std::pair<int, int>, PairHash> visited;
+
+        //iterate through all triangles
+        for(auto cellId = 0; cellId < cellsCnt; ++cellId)
+        {
+            vtkCell* cell = mesh->GetCell(cellId);
+            vtkIdList* pointIds = cell->GetPointIds();
+
+            const auto vidsCount = pointIds->GetNumberOfIds();
+            std::vector<int> vids(vidsCount);
+
+            //get the three edges of the current triangle
+            for(int i = 0; i < 3; ++i)
+            {
+                const auto v1 = pointIds->GetId(i);
+                const auto v2 = pointIds->GetId((i + 1) % 3);
+
+                //create a canonical edge key
+                const auto key = (v1 < v2) ? std::make_pair(v1, v2) : std::make_pair(v2, v1);
+                if(!visited.count(key))
+                {
+                    visited.insert(key);
+                    edgeVidsVector.push_back(key);
+                }
+
+                vids[i] = v1;
+            }
+
+            triangleVidsVector[cellId] = vids;
+        }
+    }
+
+    void InitializeAdjacencyMatrix(vtkPolyData* mesh, const std::vector<std::pair<int, int>>& edgeVidsVector,
+                                   std::vector<std::unordered_set<int>>& adjacencyMatrix)
+    {
         adjacencyMatrix.clear();
 
         const auto pointsCnt = mesh->GetNumberOfPoints();
@@ -38,15 +77,9 @@ namespace Algorithm
             adjacencyMatrix[endVid].insert(startVid);
         }
 
-        const auto allEdges = TopologyUtil::GetEdgeVids(mesh);
-        const auto linesCnt = allEdges.size();
-
         //traverse all edges
-        for(auto i = 0; i < linesCnt; i++)
+        for(const auto& [startVid, endVid]: edgeVidsVector)
         {
-            const auto& [startVid, endVid] = allEdges[i];
-            edgeVidsVector.push_back({startVid, endVid});
-
             //don't count boundary vids' neighbors
             if(!isBoundaryVid[startVid])
                 adjacencyMatrix[startVid].insert(endVid);
@@ -98,11 +131,13 @@ namespace Algorithm
             const auto originalPoints = AlgorithmHelper::GetPoints(currentMesh);
 
             std::vector<std::pair<int, int>> edgeVidsVector;
+            std::vector<std::vector<int>> triangleVidsVector;
+            InitializeEdgeTable(currentMesh, edgeVidsVector, triangleVidsVector);
+
             std::vector<std::unordered_set<int>> adjacencyMatrix;
-            ProcessEdges(currentMesh, edgeVidsVector, adjacencyMatrix);
+            InitializeAdjacencyMatrix(currentMesh, edgeVidsVector, adjacencyMatrix);
 
             const auto vidsToEdgeMap = AlgorithmHelper::GetVidsToEdgeMap(edgeVidsVector);
-            const auto triangleVidsVector = TopologyUtil::GetTriangleVids(currentMesh);
 
             std::unordered_map<int, std::vector<int>> eidToTidsMap;
             std::vector<std::vector<int>> triangleEidsVec;
@@ -113,11 +148,11 @@ namespace Algorithm
             //step1: iterate through edges and add new vertices
             const double endpointsWeight = 0.375;//3/8
             const double neighborWeight = 0.125;//1/8
+            const auto twoPI = 2.0 * std::numbers::pi;
+
             std::vector<vtkVector3d> newVertices(edgesCnt);
             for(int i = 0; i < edgesCnt; ++i)
             {
-                const auto triangles = eidToTidsMap.at(i);
-
                 const auto vid0 = edgeVidsVector[i].first;
                 const auto vid1 = edgeVidsVector[i].second;
 
@@ -125,15 +160,14 @@ namespace Algorithm
                 const auto v1 = originalPoints[vid1];
 
                 vtkVector3d point;
+                const auto triangles = eidToTidsMap.at(i);
 
-                if(triangles.size() < 2)
+                if(triangles.size() < 2)//boundary edge
                 {
-                    //boundary edge
                     point = 0.5 * (v0 + v1);
                 }
-                else
+                else//interior edge
                 {
-                    //interior edge
                     //find the neighbors
                     std::unordered_set<int> neighborVidsSet;
                     for(const auto triangle: triangles)
@@ -178,9 +212,9 @@ namespace Algorithm
                 else
                 {
                     //interior vertex
-                    //β=1/n {5/8−[3/8+1/4  cos(2π/n) ]^2 }
+                    //β=1/n {5/8−[3/8 + 1/4 cos(2π/n) ]^2 }
                     //v_old' = (1−n⋅β)⋅v_old+Σ_(j=1)^n (β⋅v_j )
-                    const auto inner_bracket = (3.0 / 8.0) + (1.0 / 4.0) * cos((2.0 * std::numbers::pi) / n);
+                    const auto inner_bracket = (3.0 / 8.0) + (1.0 / 4.0) * cos(twoPI / n);
                     const auto bracket_squared = inner_bracket * inner_bracket;
                     beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
 
@@ -201,13 +235,15 @@ namespace Algorithm
             }
 
             //triangles
-            std::vector<std::vector<int>> newTriangles;
+            const auto cellsCnt = currentMesh->GetNumberOfCells();
+            const int subTrianglesCnt = 4;
+            std::vector<std::vector<int>> newTriangles(cellsCnt * subTrianglesCnt);
 
             //newVertices internally maps eid->points
             //eg, eid 0->newVertices[0]
             //here we need to know the index of point in updatedPoints
             //the index would be eid+oldpoints.count
-            for(int cellID = 0; cellID < currentMesh->GetNumberOfCells(); ++cellID)
+            for(int cellID = 0; cellID < cellsCnt; ++cellID)
             {
                 const auto eids = triangleEidsVec[cellID];
 
@@ -218,13 +254,13 @@ namespace Algorithm
                 }
 
                 //interior triangle: {N0, N1, N2}
-                newTriangles.push_back({newVids[0], newVids[1], newVids[2]});
+                newTriangles[cellID * subTrianglesCnt] = {newVids[0], newVids[1], newVids[2]};
 
                 //corner triangles: {p0, N0, N2}, {p1, N1, N0}, {p2, N2, N1}
                 const auto triVids = triangleVidsVector[cellID];
-                newTriangles.push_back({triVids[0], newVids[0], newVids[2]});
-                newTriangles.push_back({triVids[1], newVids[1], newVids[0]});
-                newTriangles.push_back({triVids[2], newVids[2], newVids[1]});
+                newTriangles[cellID * subTrianglesCnt + 1] = {triVids[0], newVids[0], newVids[2]};
+                newTriangles[cellID * subTrianglesCnt + 2] = {triVids[1], newVids[1], newVids[0]};
+                newTriangles[cellID * subTrianglesCnt + 3] = {triVids[2], newVids[2], newVids[1]};
             }
 
             //set mesh topology
