@@ -87,15 +87,26 @@ namespace Algorithm
         }
     }
 
-    void ProcessTriangles(vtkPolyData* mesh, const std::unordered_set<int>& boundaryEidsSet,
-                          const std::unordered_map<std::pair<int, int>, int, PairHash>& vidsToEdgeMap,
+    void ProcessTriangles(vtkPolyData* mesh, const std::vector<std::pair<int, int>>& edgeVidsVector,
+                          const std::vector<std::pair<int, int>>& boundaryEdgeVids,
+                          std::unordered_set<int>& boundaryEidsSet,
                           std::vector<std::vector<int>>& edgeNeighborVidsVec, std::vector<std::vector<int>>& triangleEidsVec)
     {
-        const auto edgeCnt = vidsToEdgeMap.size();
+        const auto edgeCnt = edgeVidsVector.size();
         edgeNeighborVidsVec = std::vector<std::vector<int>>(edgeCnt);
 
         const auto cellsCnt = mesh->GetNumberOfCells();
         triangleEidsVec = std::vector<std::vector<int>>(cellsCnt, std::vector<int>(3, 0));
+
+        //construct boundary eids
+        const auto vidsToEdgeMap = AlgorithmHelper::GetVidsToEdgeMap(edgeVidsVector);
+        boundaryEidsSet.clear();
+        for(const auto& [startVid, endVid]: boundaryEdgeVids)
+        {
+            const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
+            const auto eid = vidsToEdgeMap.at(key);
+            boundaryEidsSet.insert(eid);
+        }
 
         //iterate through all triangles
         for(auto cellId = 0; cellId < cellsCnt; ++cellId)
@@ -128,7 +139,7 @@ namespace Algorithm
         auto currentMesh = vtkSmartPointer<vtkPolyData>::New();
         currentMesh->DeepCopy(originalMesh);
 
-        for(int i = 0; i < iteration; ++i)
+        for(auto iter = 0; iter < iteration; ++iter)
         {
             //pre-process
             const auto originalPoints = AlgorithmHelper::GetPoints(currentMesh);
@@ -142,20 +153,10 @@ namespace Algorithm
             std::vector<std::vector<int>> adjacencyMatrix;
             InitializeAdjacencyMatrix(currentMesh, edgeVidsVector, boundaryEdgeVids, adjacencyMatrix);
 
-            const auto vidsToEdgeMap = AlgorithmHelper::GetVidsToEdgeMap(edgeVidsVector);
-
-            //construct boundary eids
             std::unordered_set<int> boundaryEidsSet;
-            for(const auto& [startVid, endVid]: boundaryEdgeVids)
-            {
-                const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
-                const auto eid = vidsToEdgeMap.at(key);
-                boundaryEidsSet.insert(eid);
-            }
-
             std::vector<std::vector<int>> edgeNeighborVidsVec;
             std::vector<std::vector<int>> triangleEidsVec;
-            ProcessTriangles(currentMesh, boundaryEidsSet, vidsToEdgeMap, edgeNeighborVidsVec, triangleEidsVec);
+            ProcessTriangles(currentMesh, edgeVidsVector, boundaryEdgeVids, boundaryEidsSet, edgeNeighborVidsVec, triangleEidsVec);
 
             const auto edgesCnt = edgeVidsVector.size();
 
@@ -164,7 +165,9 @@ namespace Algorithm
             const double neighborWeight = 0.125;//1/8
             const auto twoPI = 2.0 * std::numbers::pi;
 
-            std::vector<vtkVector3d> newVertices(edgesCnt);
+            const auto pointsCnt = originalPoints.size();
+            std::vector<vtkVector3d> updatedPoints(pointsCnt + edgesCnt);
+
             for(auto edgeId = 0; edgeId < edgesCnt; ++edgeId)
             {
                 const auto vid0 = edgeVidsVector[edgeId].first;
@@ -187,13 +190,10 @@ namespace Algorithm
                     }
                 }
 
-                newVertices[edgeId] = point;
+                updatedPoints[pointsCnt + edgeId] = point;
             }
 
             //step2: update old vertices pos
-            const auto pointsCnt = originalPoints.size();
-            std::vector<vtkVector3d> updatedPoints(pointsCnt);
-
             for(auto i = 0; i < pointsCnt; i++)
             {
                 const auto neighborVids = adjacencyMatrix[i];
@@ -212,7 +212,7 @@ namespace Algorithm
                     //interior vertex
                     //β=1/n {5/8−[3/8 + 1/4 cos(2π/n) ]^2 }
                     //v_old' = (1−n⋅β)⋅v_old+Σ_(j=1)^n (β⋅v_j )
-                    const auto inner_bracket = (3.0 / 8.0) + (1.0 / 4.0) * cos(twoPI / n);
+                    const auto inner_bracket = endpointsWeight + (1.0 / 4.0) * cos(twoPI / n);
                     const auto bracket_squared = inner_bracket * inner_bracket;
                     beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
 
@@ -226,11 +226,7 @@ namespace Algorithm
             }
 
             //step 3: update topology and create new mesh
-            //points
-            for(const auto& point: newVertices)
-            {
-                updatedPoints.push_back(point);
-            }
+            //points are already updated
 
             //triangles
             const auto cellsCnt = currentMesh->GetNumberOfCells();
@@ -243,12 +239,10 @@ namespace Algorithm
             //the index would be eid+oldpoints.count
             for(int cellID = 0; cellID < cellsCnt; ++cellID)
             {
-                const auto eids = triangleEidsVec[cellID];
-
-                std::vector<int> newVids(3);
+                auto newVids = triangleEidsVec[cellID];
                 for(int i = 0; i < 3; ++i)
                 {
-                    newVids[i] = eids[i] + pointsCnt;
+                    newVids[i] += pointsCnt;
                 }
 
                 //interior triangle: {N0, N1, N2}
