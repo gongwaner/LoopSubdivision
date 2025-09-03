@@ -236,7 +236,7 @@ namespace Algorithm
             //triangles
             const auto cellsCnt = currentMesh->GetNumberOfCells();
             const int subTrianglesCnt = 4;
-            std::vector<std::vector<int>> newTriangles(cellsCnt * subTrianglesCnt);
+            std::vector<int> newTrianglesVidsFlat(cellsCnt * subTrianglesCnt * 3);
 
             //newVertices internally maps eid->points
             //eg, eid 0->newVertices[0]
@@ -250,14 +250,30 @@ namespace Algorithm
                     newVids[i] += pointsCnt;
                 }
 
+                auto index = cellID * subTrianglesCnt;
+
                 //interior triangle: {N0, N1, N2}
-                newTriangles[cellID * subTrianglesCnt] = {newVids[0], newVids[1], newVids[2]};
+                for(int i = 0; i < 3; ++i)
+                    newTrianglesVidsFlat[index * 3 + i] = newVids[i];
+                index++;
 
                 //corner triangles: {p0, N0, N2}, {p1, N1, N0}, {p2, N2, N1}
                 const auto triVids = triangleVidsVector[cellID];
-                newTriangles[cellID * subTrianglesCnt + 1] = {triVids[0], newVids[0], newVids[2]};
-                newTriangles[cellID * subTrianglesCnt + 2] = {triVids[1], newVids[1], newVids[0]};
-                newTriangles[cellID * subTrianglesCnt + 3] = {triVids[2], newVids[2], newVids[1]};
+                newTrianglesVidsFlat[index * 3] = triVids[0];
+                newTrianglesVidsFlat[index * 3 + 1] = newVids[0];
+                newTrianglesVidsFlat[index * 3 + 2] = newVids[2];
+                index++;
+
+
+                newTrianglesVidsFlat[index * 3] = triVids[1];
+                newTrianglesVidsFlat[index * 3 + 1] = newVids[1];
+                newTrianglesVidsFlat[index * 3 + 2] = newVids[0];
+                index++;
+
+
+                newTrianglesVidsFlat[index * 3] = triVids[2];
+                newTrianglesVidsFlat[index * 3 + 1] = newVids[2];
+                newTrianglesVidsFlat[index * 3 + 2] = newVids[1];
             }
 
             //set mesh topology
@@ -265,7 +281,7 @@ namespace Algorithm
             for(auto vid = 0; vid < updatedPointsFlat.size() / 3; ++vid)
                 vtkPointsVec->InsertNextPoint(updatedPointsFlat[vid * 3 + 0], updatedPointsFlat[vid * 3 + 1], updatedPointsFlat[vid * 3 + 2]);
 
-            auto cells = TopologyUtil::GetTriangleTopologyAsCellArray(newTriangles);
+            auto cells = AlgorithmHelper::GetTriangleTopologyAsCellArray(newTrianglesVidsFlat);
 
             auto newMesh = vtkSmartPointer<vtkPolyData>::New();
             newMesh->SetPoints(vtkPointsVec);
