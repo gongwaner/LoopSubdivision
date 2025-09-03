@@ -142,7 +142,7 @@ namespace Algorithm
         for(auto iter = 0; iter < iteration; ++iter)
         {
             //pre-process
-            const auto originalPoints = AlgorithmHelper::GetPoints(currentMesh);
+            const auto originalPointsFlat = AlgorithmHelper::GetPointsAsFlatVector(currentMesh);
 
             std::vector<std::pair<int, int>> edgeVidsVector;
             std::vector<std::vector<int>> triangleVidsVector;
@@ -165,38 +165,39 @@ namespace Algorithm
             const double neighborWeight = 0.125;//1/8
             const auto twoPI = 2.0 * std::numbers::pi;
 
-            const auto pointsCnt = originalPoints.size();
-            std::vector<vtkVector3d> updatedPoints(pointsCnt + edgesCnt);
+            const auto pointsCnt = currentMesh->GetNumberOfPoints();
+            std::vector<double> updatedPointsFlat((pointsCnt + edgesCnt) * 3);
 
             for(auto edgeId = 0; edgeId < edgesCnt; ++edgeId)
             {
                 const auto vid0 = edgeVidsVector[edgeId].first;
                 const auto vid1 = edgeVidsVector[edgeId].second;
 
-                const auto v0 = originalPoints[vid0];
-                const auto v1 = originalPoints[vid1];
+                for(int i = 0; i < 3; ++i)
+                    updatedPointsFlat[(pointsCnt + edgeId) * 3 + i] = originalPointsFlat[vid0 * 3 + i] + originalPointsFlat[vid1 * 3 + i];
 
-                vtkVector3d point;
                 if(boundaryEidsSet.count(edgeId))//boundary edge
                 {
-                    point = 0.5 * (v0 + v1);
+                    for(int i = 0; i < 3; ++i)
+                        updatedPointsFlat[(pointsCnt + edgeId) * 3 + i] *= 0.5;
                 }
                 else//interior edge
                 {
-                    point = endpointsWeight * (v0 + v1);
+                    for(int i = 0; i < 3; ++i)
+                        updatedPointsFlat[(pointsCnt + edgeId) * 3 + i] *= endpointsWeight;
+
                     for(const auto vid: edgeNeighborVidsVec[edgeId])
                     {
-                        point += neighborWeight * originalPoints[vid];
+                        for(int i = 0; i < 3; ++i)
+                            updatedPointsFlat[(pointsCnt + edgeId) * 3 + i] += neighborWeight * originalPointsFlat[vid * 3 + i];
                     }
                 }
-
-                updatedPoints[pointsCnt + edgeId] = point;
             }
 
             //step2: update old vertices pos
-            for(auto i = 0; i < pointsCnt; i++)
+            for(auto vid = 0; vid < pointsCnt; vid++)
             {
-                const auto neighborVids = adjacencyMatrix[i];
+                const auto neighborVids = adjacencyMatrix[vid];
                 const auto n = neighborVids.size();
 
                 double beta = 0.0;
@@ -204,7 +205,9 @@ namespace Algorithm
                 {
                     //boundary vertex
                     //	p0′=3/4 p0 + 1/8 (p1 + p2)
-                    updatedPoints[i] = 0.75 * originalPoints[i];
+                    for(int i = 0; i < 3; ++i)
+                        updatedPointsFlat[vid * 3 + i] = 0.75 * originalPointsFlat[vid * 3 + i];
+
                     beta = 0.125;//1/8
                 }
                 else
@@ -216,12 +219,14 @@ namespace Algorithm
                     const auto bracket_squared = inner_bracket * inner_bracket;
                     beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
 
-                    updatedPoints[i] = (1.0 - n * beta) * originalPoints[i];
+                    for(int i = 0; i < 3; ++i)
+                        updatedPointsFlat[vid * 3 + i] = (1.0 - n * beta) * originalPointsFlat[vid * 3 + i];
                 }
 
-                for(const auto vid: neighborVids)
+                for(const auto neighborVid: neighborVids)
                 {
-                    updatedPoints[i] += beta * originalPoints[vid];
+                    for(int i = 0; i < 3; ++i)
+                        updatedPointsFlat[vid * 3 + i] += beta * originalPointsFlat[neighborVid * 3 + i];
                 }
             }
 
@@ -257,8 +262,8 @@ namespace Algorithm
 
             //set mesh topology
             auto vtkPointsVec = vtkSmartPointer<vtkPoints>::New();
-            for(const auto& p: updatedPoints)
-                vtkPointsVec->InsertNextPoint(p.GetData());
+            for(auto vid = 0; vid < updatedPointsFlat.size() / 3; ++vid)
+                vtkPointsVec->InsertNextPoint(updatedPointsFlat[vid * 3 + 0], updatedPointsFlat[vid * 3 + 1], updatedPointsFlat[vid * 3 + 2]);
 
             auto cells = TopologyUtil::GetTriangleTopologyAsCellArray(newTriangles);
 

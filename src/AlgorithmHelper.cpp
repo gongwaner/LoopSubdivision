@@ -1,7 +1,6 @@
 #include "AlgorithmHelper.h"
 
 #include <vtkPolyData.h>
-#include <vtkPointData.h>
 
 
 namespace AlgorithmHelper
@@ -12,15 +11,16 @@ namespace AlgorithmHelper
         return cmakeDir / "data";
     }
 
-    std::vector<vtkVector3d> GetPoints(vtkPolyData* mesh)
+    std::vector<double> GetPointsAsFlatVector(vtkPolyData* mesh)
     {
         const auto pointsCnt = mesh->GetNumberOfPoints();
-        std::vector<vtkVector3d> points(pointsCnt);
+        std::vector<double> points(pointsCnt * 3);
 
-        for(auto i = 0; i < pointsCnt; i++)
+        for(auto vid = 0; vid < pointsCnt; vid++)
         {
-            auto point = mesh->GetPoint(i);
-            points[i] = vtkVector3d(point[0], point[1], point[2]);
+            auto point = mesh->GetPoint(vid);
+            for(int i = 0; i < 3; i++)
+                points[vid * 3 + i] = point[i];
         }
 
         return points;
