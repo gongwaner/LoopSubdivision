@@ -17,6 +17,8 @@ namespace AlgorithmHelper
 
     std::vector<double> GetPointsAsFlatVector(vtkPolyData* mesh);
 
+    std::vector<int> GetBoundaryEdgeVidsFlatVector(vtkPolyData* mesh);
+
     std::unordered_map<std::pair<int, int>, int, PairHash> GetVidsToEdgeMap(const std::vector<std::pair<int, int>>& edgeVidsVector);
 
     vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<int>& triangleVids);

@@ -17,10 +17,12 @@
 
 namespace Algorithm
 {
-    void InitializeEdgeTable(vtkPolyData* mesh, std::vector<std::pair<int, int>>& edgeVidsVector,
-                             std::vector<int>& triangleVidsFlatVector)
+    void InitializeEdgeTable(vtkPolyData* mesh, std::vector<int>& edgeVidsFlatVector,
+                             std::vector<int>& triangleVidsFlatVector,
+                             std::unordered_map<std::pair<int, int>, int, PairHash>& vidsToEdgeMap)
     {
-        edgeVidsVector.clear();
+        edgeVidsFlatVector.clear();
+        vidsToEdgeMap.clear();
 
         const auto cellsCnt = mesh->GetNumberOfCells();
         triangleVidsFlatVector = std::vector<int>(cellsCnt * 3);
@@ -44,7 +46,10 @@ namespace Algorithm
                 if(!visited.count(key))
                 {
                     visited.insert(key);
-                    edgeVidsVector.push_back(key);
+                    vidsToEdgeMap[key] = edgeVidsFlatVector.size() / 2;
+
+                    edgeVidsFlatVector.push_back(key.first);
+                    edgeVidsFlatVector.push_back(key.second);
                 }
 
                 triangleVidsFlatVector[cellId * 3 + i] = v1;
@@ -52,8 +57,9 @@ namespace Algorithm
         }
     }
 
-    void InitializeAdjacencyMatrix(vtkPolyData* mesh, const std::vector<std::pair<int, int>>& edgeVidsVector,
-                                   const std::vector<std::pair<int, int>>& boundaryEdgeVids, std::vector<std::vector<int>>& adjacencyMatrix)
+    void InitializeAdjacencyMatrix(vtkPolyData* mesh, const std::vector<int>& edgeVidsFlatVector,
+                                   const std::vector<int>& boundaryEdgeVidsFlatVector,
+                                   std::vector<std::vector<int>>& adjacencyMatrix)
     {
         const auto pointsCnt = mesh->GetNumberOfPoints();
         adjacencyMatrix = std::vector<std::vector<int>>(pointsCnt);
@@ -61,8 +67,11 @@ namespace Algorithm
         std::vector<bool> isBoundaryVid(pointsCnt, false);
 
         //process all boundary edges
-        for(const auto& [startVid, endVid]: boundaryEdgeVids)
+        for(auto i = 0; i < boundaryEdgeVidsFlatVector.size() / 2; ++i)
         {
+            const auto startVid = boundaryEdgeVidsFlatVector[i * 2];
+            const auto endVid = boundaryEdgeVidsFlatVector[i * 2 + 1];
+
             isBoundaryVid[startVid] = true;
             isBoundaryVid[endVid] = true;
 
@@ -71,8 +80,12 @@ namespace Algorithm
         }
 
         //traverse all edges
-        for(const auto& [startVid, endVid]: edgeVidsVector)
+        const auto edgeCnt = edgeVidsFlatVector.size() / 2;
+        for(int i = 0; i < edgeCnt; ++i)
         {
+            const auto startVid = edgeVidsFlatVector[i * 2];
+            const auto endVid = edgeVidsFlatVector[i * 2 + 1];
+
             //don't count boundary vids' neighbors
             if(!isBoundaryVid[startVid])
                 adjacencyMatrix[startVid].push_back(endVid);
@@ -82,38 +95,50 @@ namespace Algorithm
         }
     }
 
-    void ProcessTriangles(vtkPolyData* mesh, const std::vector<std::pair<int, int>>& edgeVidsVector,
-                          const std::vector<std::pair<int, int>>& boundaryEdgeVids,
+    void ProcessTriangles(const std::vector<int>& triangleVidsFlatVector,
+                          const std::vector<int>& edgeVidsFlatVector,
+                          const std::vector<int>& boundaryEdgeVidsFlatVector,
+                          const std::unordered_map<std::pair<int, int>, int, PairHash>& vidsToEdgeMap,
                           std::unordered_set<int>& boundaryEidsSet,
                           std::vector<std::vector<int>>& edgeNeighborVidsVec, std::vector<int>& triangleEidsFlatVec)
     {
-        const auto edgeCnt = edgeVidsVector.size();
+        const auto edgeCnt = edgeVidsFlatVector.size() / 2;
         edgeNeighborVidsVec = std::vector<std::vector<int>>(edgeCnt);
 
-        const auto cellsCnt = mesh->GetNumberOfCells();
+        const auto cellsCnt = triangleVidsFlatVector.size() / 3;
         triangleEidsFlatVec = std::vector<int>(cellsCnt * 3);
 
         //construct boundary eids
-        const auto vidsToEdgeMap = AlgorithmHelper::GetVidsToEdgeMap(edgeVidsVector);
-        boundaryEidsSet.clear();
-        for(const auto& [startVid, endVid]: boundaryEdgeVids)
+        if(!boundaryEdgeVidsFlatVector.empty())
         {
-            const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
-            const auto eid = vidsToEdgeMap.at(key);
-            boundaryEidsSet.insert(eid);
+            boundaryEidsSet.clear();
+
+            for(auto i = 0; i < boundaryEdgeVidsFlatVector.size() / 2; ++i)
+            {
+                const auto startVid = boundaryEdgeVidsFlatVector[i * 2];
+                const auto endVid = boundaryEdgeVidsFlatVector[i * 2 + 1];
+
+                const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
+                const auto eid = vidsToEdgeMap.at(key);
+                boundaryEidsSet.insert(eid);
+            }
         }
 
         //iterate through all triangles
         for(auto cellId = 0; cellId < cellsCnt; ++cellId)
         {
-            vtkCell* cell = mesh->GetCell(cellId);
-            vtkIdList* pointIds = cell->GetPointIds();
+            const int pointIds[3]
+            {
+                triangleVidsFlatVector[cellId * 3],
+                triangleVidsFlatVector[cellId * 3 + 1],
+                triangleVidsFlatVector[cellId * 3 + 2]
+            };
 
             //get the three edges of the current triangle
             for(int i = 0; i < 3; ++i)
             {
-                const auto v1 = pointIds->GetId(i);
-                const auto v2 = pointIds->GetId((i + 1) % 3);
+                const auto v1 = pointIds[i];
+                const auto v2 = pointIds[(i + 1) % 3];
 
                 //create a canonical edge key
                 const auto key = (v1 < v2) ? std::make_pair(v1, v2) : std::make_pair(v2, v1);
@@ -123,7 +148,7 @@ namespace Algorithm
                 if(boundaryEidsSet.count(eid))
                     continue;
 
-                const auto v3 = pointIds->GetId((i + 2) % 3);
+                const auto v3 = pointIds[(i + 2) % 3];
                 edgeNeighborVidsVec[eid].push_back(v3);
             }
         }
@@ -139,21 +164,23 @@ namespace Algorithm
             //pre-process
             const auto originalPointsFlat = AlgorithmHelper::GetPointsAsFlatVector(currentMesh);
 
-            std::vector<std::pair<int, int>> edgeVidsVector;
+            std::vector<int> edgeVidsFlatVector;
             std::vector<int> triangleVidsFlatVector;
-            InitializeEdgeTable(currentMesh, edgeVidsVector, triangleVidsFlatVector);
+            std::unordered_map<std::pair<int, int>, int, PairHash> vidsToEdgeMap;
+            InitializeEdgeTable(currentMesh, edgeVidsFlatVector, triangleVidsFlatVector, vidsToEdgeMap);
 
-            const auto boundaryEdgeVids = TopologyUtil::GetBoundaryEdgeVids(currentMesh);
+            const auto boundaryEdgeVidsFlatVector = AlgorithmHelper::GetBoundaryEdgeVidsFlatVector(currentMesh);
 
             std::vector<std::vector<int>> adjacencyMatrix;
-            InitializeAdjacencyMatrix(currentMesh, edgeVidsVector, boundaryEdgeVids, adjacencyMatrix);
+            InitializeAdjacencyMatrix(currentMesh, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, adjacencyMatrix);
 
             std::unordered_set<int> boundaryEidsSet;
             std::vector<std::vector<int>> edgeNeighborVidsVec;
             std::vector<int> triangleEidsFlatVec;
-            ProcessTriangles(currentMesh, edgeVidsVector, boundaryEdgeVids, boundaryEidsSet, edgeNeighborVidsVec, triangleEidsFlatVec);
+            ProcessTriangles(triangleVidsFlatVector, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
+                             boundaryEidsSet, edgeNeighborVidsVec, triangleEidsFlatVec);
 
-            const auto edgesCnt = edgeVidsVector.size();
+            const auto edgesCnt = edgeVidsFlatVector.size() / 2;
 
             //step1: iterate through edges and add new vertices
             const double endpointsWeight = 0.375;//3/8
@@ -166,8 +193,8 @@ namespace Algorithm
 
             for(auto edgeId = 0; edgeId < edgesCnt; ++edgeId)
             {
-                const auto vid0 = edgeVidsVector[edgeId].first;
-                const auto vid1 = edgeVidsVector[edgeId].second;
+                const auto vid0 = edgeVidsFlatVector[edgeId * 2];
+                const auto vid1 = edgeVidsFlatVector[edgeId * 2 + 1];
                 const auto index = originalPointsCnt + edgeId;
 
                 for(int i = 0; i < 3; ++i)
@@ -235,12 +262,12 @@ namespace Algorithm
             const int subTrianglesCnt = 4;
             std::vector<int> newTrianglesVidsFlat(cellsCnt * subTrianglesCnt * 3);
 
-            for(int cellID = 0; cellID < cellsCnt; ++cellID)
+            for(auto cellID = 0; cellID < cellsCnt; ++cellID)
             {
                 //newVertices internally maps eid->points. eg, eid 0->newVertices[0]
                 //here we need to know the index of point in updatedPoints
                 //the index would be eid+oldpoints.count
-                double newVids[3];
+                int newVids[3];
                 for(int i = 0; i < 3; ++i)
                 {
                     newVids[i] = triangleEidsFlatVec[cellID * 3 + i] + originalPointsCnt;
