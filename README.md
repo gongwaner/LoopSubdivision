@@ -1,6 +1,7 @@
 # Loop Subdivision
 
 <img width="2029" height="935" alt="image" src="https://github.com/user-attachments/assets/40bf3a05-7736-451a-968e-06b010ce2e46" />
+
 Implementation of loop subdivision algorithm in *[Smooth Subdivision Surfaces Based on Triangles](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/thesis-10.pdf)* by *Charles T. Loop* (2003)
 
 
