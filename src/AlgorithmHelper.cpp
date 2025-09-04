@@ -4,6 +4,7 @@
 #include <vtkPointData.h>
 #include <vtkFeatureEdges.h>
 
+
 namespace AlgorithmHelper
 {
     std::filesystem::path GetDataDir()

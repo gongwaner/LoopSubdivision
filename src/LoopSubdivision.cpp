@@ -10,13 +10,26 @@
 #include <vtkSmartPointer.h>
 
 #include "IOUtil.h"
-#include "TopologyUtil.h"
 
 #include "AlgorithmHelper.h"
 
 
 namespace Algorithm
 {
+    struct InputMeshData
+    {
+        std::vector<double> originalPointsFlatVector;
+        std::vector<int> edgeVidsFlatVector;
+        std::vector<int> triangleVidsFlatVector;
+        std::vector<std::vector<int>> adjacencyMatrix;
+        std::unordered_set<int> boundaryEidsSet;
+        std::vector<std::vector<int>> edgeNeighborVidsVector;
+        std::vector<int> triangleEidsFlatVector;
+        int pointsCnt;
+        int edgesCnt;
+        int cellsCnt;
+    };
+
     void InitializeEdgeTable(vtkPolyData* mesh, std::vector<int>& edgeVidsFlatVector,
                              std::vector<int>& triangleVidsFlatVector,
                              std::unordered_map<std::pair<int, int>, int, PairHash>& vidsToEdgeMap)
@@ -151,6 +164,159 @@ namespace Algorithm
         }
     }
 
+    InputMeshData GetInputMeshData(vtkPolyData* mesh)
+    {
+        const auto originalPointsFlatVector = AlgorithmHelper::GetPointsAsFlatVector(mesh);
+
+        std::vector<int> edgeVidsFlatVector;
+        std::vector<int> triangleVidsFlatVector;
+        std::unordered_map<std::pair<int, int>, int, PairHash> vidsToEdgeMap;
+        InitializeEdgeTable(mesh, edgeVidsFlatVector, triangleVidsFlatVector, vidsToEdgeMap);
+
+        const auto boundaryEdgeVidsFlatVector = AlgorithmHelper::GetBoundaryEdgeVidsFlatVector(mesh);
+
+        std::vector<std::vector<int>> adjacencyMatrix;
+        InitializeAdjacencyMatrix(mesh, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, adjacencyMatrix);
+
+        std::unordered_set<int> boundaryEidsSet;
+        std::vector<std::vector<int>> edgeNeighborVidsVector;
+        std::vector<int> triangleEidsFlatVec;
+        ProcessTriangles(triangleVidsFlatVector, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
+                         boundaryEidsSet, edgeNeighborVidsVector, triangleEidsFlatVec);
+
+        InputMeshData meshData;
+        meshData.originalPointsFlatVector = originalPointsFlatVector;
+        meshData.edgeVidsFlatVector = edgeVidsFlatVector;
+        meshData.triangleVidsFlatVector = triangleVidsFlatVector;
+        meshData.adjacencyMatrix = adjacencyMatrix;
+        meshData.boundaryEidsSet = boundaryEidsSet;
+        meshData.edgeNeighborVidsVector = edgeNeighborVidsVector;
+        meshData.triangleEidsFlatVector = triangleEidsFlatVec;
+        meshData.pointsCnt = mesh->GetNumberOfPoints();
+        meshData.edgesCnt = edgeVidsFlatVector.size() / 2;
+        meshData.cellsCnt = mesh->GetNumberOfCells();
+
+        return meshData;
+    }
+
+    std::vector<double> GetUpdatedPointsFlatVector(const InputMeshData& meshData)
+    {
+        //step1: iterate through edges and add new vertices
+        const double endpointsWeight = 0.375;//3/8
+        const double neighborWeight = 0.125;//1/8
+        const auto twoPI = 2.0 * std::numbers::pi;
+
+        const auto newPointsCnt = meshData.pointsCnt + meshData.edgesCnt;
+        std::vector<double> updatedPointsFlatVector(newPointsCnt * 3);
+
+        for(auto edgeId = 0; edgeId < meshData.edgesCnt; ++edgeId)
+        {
+            const auto vid0 = meshData.edgeVidsFlatVector[edgeId * 2];
+            const auto vid1 = meshData.edgeVidsFlatVector[edgeId * 2 + 1];
+            const auto index = meshData.pointsCnt + edgeId;
+
+            for(int i = 0; i < 3; ++i)
+                updatedPointsFlatVector[index * 3 + i] = meshData.originalPointsFlatVector[vid0 * 3 + i] + meshData.originalPointsFlatVector[vid1 * 3 + i];
+
+            if(meshData.boundaryEidsSet.count(edgeId))//boundary edge
+            {
+                for(int i = 0; i < 3; ++i)
+                    updatedPointsFlatVector[index * 3 + i] *= 0.5;
+            }
+            else//interior edge
+            {
+                for(int i = 0; i < 3; ++i)
+                    updatedPointsFlatVector[index * 3 + i] *= endpointsWeight;
+
+                for(const auto vid: meshData.edgeNeighborVidsVector[edgeId])
+                {
+                    for(int i = 0; i < 3; ++i)
+                        updatedPointsFlatVector[index * 3 + i] += neighborWeight * meshData.originalPointsFlatVector[vid * 3 + i];
+                }
+            }
+        }
+
+        //step2: update old vertices pos
+        for(auto vid = 0; vid < meshData.pointsCnt; vid++)
+        {
+            const auto& neighborVids = meshData.adjacencyMatrix[vid];
+            const auto n = neighborVids.size();
+
+            double beta = 0.0;
+            if(n < 3)
+            {
+                //boundary vertex
+                //	p0′=3/4 p0 + 1/8 (p1 + p2)
+                for(int i = 0; i < 3; ++i)
+                    updatedPointsFlatVector[vid * 3 + i] = 0.75 * meshData.originalPointsFlatVector[vid * 3 + i];
+
+                beta = 0.125;//1/8
+            }
+            else
+            {
+                //interior vertex
+                //β=1/n {5/8−[3/8 + 1/4 cos(2π/n) ]^2 }
+                //v_old' = (1−n⋅β)⋅v_old+Σ_(j=1)^n (β⋅v_j )
+                const auto inner_bracket = endpointsWeight + (1.0 / 4.0) * cos(twoPI / n);
+                const auto bracket_squared = inner_bracket * inner_bracket;
+                beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
+
+                for(int i = 0; i < 3; ++i)
+                    updatedPointsFlatVector[vid * 3 + i] = (1.0 - n * beta) * meshData.originalPointsFlatVector[vid * 3 + i];
+            }
+
+            for(const auto neighborVid: neighborVids)
+            {
+                for(int i = 0; i < 3; ++i)
+                    updatedPointsFlatVector[vid * 3 + i] += beta * meshData.originalPointsFlatVector[neighborVid * 3 + i];
+            }
+        }
+
+        return updatedPointsFlatVector;
+    }
+
+    std::vector<int> GetUpdatedTriangleVidsFlatVector(const InputMeshData& meshData)
+    {
+        const int subTrianglesCnt = 4;
+        std::vector<int> newTrianglesVidsFlatVector(meshData.cellsCnt * subTrianglesCnt * 3);
+
+        for(auto cellID = 0; cellID < meshData.cellsCnt; ++cellID)
+        {
+            //newVertices internally maps eid->points. eg, eid 0->newVertices[0]
+            //here we need to know the index of point in updatedPoints
+            //the index would be eid+oldpoints.count
+            int newVids[3];
+            for(int i = 0; i < 3; ++i)
+            {
+                newVids[i] = meshData.triangleEidsFlatVector[cellID * 3 + i] + meshData.pointsCnt;
+            }
+
+            auto index = cellID * subTrianglesCnt;
+
+            //interior triangle: {N0, N1, N2}
+            for(int i = 0; i < 3; ++i)
+                newTrianglesVidsFlatVector[index * 3 + i] = newVids[i];
+            index++;
+
+            //corner triangles: {p0, N0, N2}, {p1, N1, N0}, {p2, N2, N1}
+            newTrianglesVidsFlatVector[index * 3] = meshData.triangleVidsFlatVector[cellID * 3];
+            newTrianglesVidsFlatVector[index * 3 + 1] = newVids[0];
+            newTrianglesVidsFlatVector[index * 3 + 2] = newVids[2];
+            index++;
+
+            newTrianglesVidsFlatVector[index * 3] = meshData.triangleVidsFlatVector[cellID * 3 + 1];
+            newTrianglesVidsFlatVector[index * 3 + 1] = newVids[1];
+            newTrianglesVidsFlatVector[index * 3 + 2] = newVids[0];
+            index++;
+
+            newTrianglesVidsFlatVector[index * 3] = meshData.triangleVidsFlatVector[cellID * 3 + 2];
+            newTrianglesVidsFlatVector[index * 3 + 1] = newVids[2];
+            newTrianglesVidsFlatVector[index * 3 + 2] = newVids[1];
+        }
+
+        return newTrianglesVidsFlatVector;
+    }
+
     vtkSmartPointer<vtkPolyData> GetLoopSubdivisionMesh(vtkPolyData* originalMesh, const int iteration)
     {
         auto currentMesh = vtkSmartPointer<vtkPolyData>::New();
@@ -159,146 +325,18 @@ namespace Algorithm
         for(auto iter = 0; iter < iteration; ++iter)
         {
             //pre-process
-            const auto originalPointsFlat = AlgorithmHelper::GetPointsAsFlatVector(currentMesh);
+            const auto meshData = GetInputMeshData(currentMesh);
 
-            std::vector<int> edgeVidsFlatVector;
-            std::vector<int> triangleVidsFlatVector;
-            std::unordered_map<std::pair<int, int>, int, PairHash> vidsToEdgeMap;
-            InitializeEdgeTable(currentMesh, edgeVidsFlatVector, triangleVidsFlatVector, vidsToEdgeMap);
-
-            const auto boundaryEdgeVidsFlatVector = AlgorithmHelper::GetBoundaryEdgeVidsFlatVector(currentMesh);
-
-            std::vector<std::vector<int>> adjacencyMatrix;
-            InitializeAdjacencyMatrix(currentMesh, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, adjacencyMatrix);
-
-            std::unordered_set<int> boundaryEidsSet;
-            std::vector<std::vector<int>> edgeNeighborVidsVec;
-            std::vector<int> triangleEidsFlatVec;
-            ProcessTriangles(triangleVidsFlatVector, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
-                             boundaryEidsSet, edgeNeighborVidsVec, triangleEidsFlatVec);
-
-            const auto edgesCnt = edgeVidsFlatVector.size() / 2;
-
-            //step1: iterate through edges and add new vertices
-            const double endpointsWeight = 0.375;//3/8
-            const double neighborWeight = 0.125;//1/8
-            const auto twoPI = 2.0 * std::numbers::pi;
-
-            const auto originalPointsCnt = currentMesh->GetNumberOfPoints();
-            const auto newPointsCnt = originalPointsCnt + edgesCnt;
-            std::vector<double> updatedPointsFlat(newPointsCnt * 3);
-
-            for(auto edgeId = 0; edgeId < edgesCnt; ++edgeId)
-            {
-                const auto vid0 = edgeVidsFlatVector[edgeId * 2];
-                const auto vid1 = edgeVidsFlatVector[edgeId * 2 + 1];
-                const auto index = originalPointsCnt + edgeId;
-
-                for(int i = 0; i < 3; ++i)
-                    updatedPointsFlat[index * 3 + i] = originalPointsFlat[vid0 * 3 + i] + originalPointsFlat[vid1 * 3 + i];
-
-                if(boundaryEidsSet.count(edgeId))//boundary edge
-                {
-                    for(int i = 0; i < 3; ++i)
-                        updatedPointsFlat[index * 3 + i] *= 0.5;
-                }
-                else//interior edge
-                {
-                    for(int i = 0; i < 3; ++i)
-                        updatedPointsFlat[index * 3 + i] *= endpointsWeight;
-
-                    for(const auto vid: edgeNeighborVidsVec[edgeId])
-                    {
-                        for(int i = 0; i < 3; ++i)
-                            updatedPointsFlat[index * 3 + i] += neighborWeight * originalPointsFlat[vid * 3 + i];
-                    }
-                }
-            }
-
-            //step2: update old vertices pos
-            for(auto vid = 0; vid < originalPointsCnt; vid++)
-            {
-                const auto& neighborVids = adjacencyMatrix[vid];
-                const auto n = neighborVids.size();
-
-                double beta = 0.0;
-                if(n < 3)
-                {
-                    //boundary vertex
-                    //	p0′=3/4 p0 + 1/8 (p1 + p2)
-                    for(int i = 0; i < 3; ++i)
-                        updatedPointsFlat[vid * 3 + i] = 0.75 * originalPointsFlat[vid * 3 + i];
-
-                    beta = 0.125;//1/8
-                }
-                else
-                {
-                    //interior vertex
-                    //β=1/n {5/8−[3/8 + 1/4 cos(2π/n) ]^2 }
-                    //v_old' = (1−n⋅β)⋅v_old+Σ_(j=1)^n (β⋅v_j )
-                    const auto inner_bracket = endpointsWeight + (1.0 / 4.0) * cos(twoPI / n);
-                    const auto bracket_squared = inner_bracket * inner_bracket;
-                    beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
-
-                    for(int i = 0; i < 3; ++i)
-                        updatedPointsFlat[vid * 3 + i] = (1.0 - n * beta) * originalPointsFlat[vid * 3 + i];
-                }
-
-                for(const auto neighborVid: neighborVids)
-                {
-                    for(int i = 0; i < 3; ++i)
-                        updatedPointsFlat[vid * 3 + i] += beta * originalPointsFlat[neighborVid * 3 + i];
-                }
-            }
-
-            //step 3: update topology and create new mesh
-            //points are already updated
-
-            //triangles
-            const auto cellsCnt = currentMesh->GetNumberOfCells();
-            const int subTrianglesCnt = 4;
-            std::vector<int> newTrianglesVidsFlat(cellsCnt * subTrianglesCnt * 3);
-
-            for(auto cellID = 0; cellID < cellsCnt; ++cellID)
-            {
-                //newVertices internally maps eid->points. eg, eid 0->newVertices[0]
-                //here we need to know the index of point in updatedPoints
-                //the index would be eid+oldpoints.count
-                int newVids[3];
-                for(int i = 0; i < 3; ++i)
-                {
-                    newVids[i] = triangleEidsFlatVec[cellID * 3 + i] + originalPointsCnt;
-                }
-
-                auto index = cellID * subTrianglesCnt;
-
-                //interior triangle: {N0, N1, N2}
-                for(int i = 0; i < 3; ++i)
-                    newTrianglesVidsFlat[index * 3 + i] = newVids[i];
-                index++;
-
-                //corner triangles: {p0, N0, N2}, {p1, N1, N0}, {p2, N2, N1}
-                newTrianglesVidsFlat[index * 3] = triangleVidsFlatVector[cellID * 3];
-                newTrianglesVidsFlat[index * 3 + 1] = newVids[0];
-                newTrianglesVidsFlat[index * 3 + 2] = newVids[2];
-                index++;
-
-                newTrianglesVidsFlat[index * 3] = triangleVidsFlatVector[cellID * 3 + 1];
-                newTrianglesVidsFlat[index * 3 + 1] = newVids[1];
-                newTrianglesVidsFlat[index * 3 + 2] = newVids[0];
-                index++;
-
-                newTrianglesVidsFlat[index * 3] = triangleVidsFlatVector[cellID * 3 + 2];
-                newTrianglesVidsFlat[index * 3 + 1] = newVids[2];
-                newTrianglesVidsFlat[index * 3 + 2] = newVids[1];
-            }
+            const auto updatedPointsFlatVector = GetUpdatedPointsFlatVector(meshData);
+            const auto updatedTriangleVidsFlatVector = GetUpdatedTriangleVidsFlatVector(meshData);
 
             //set mesh topology
+            const auto newPointsCnt = meshData.pointsCnt + meshData.edgesCnt;
             auto vtkPointsVec = vtkSmartPointer<vtkPoints>::New();
             for(auto vid = 0; vid < newPointsCnt; ++vid)
-                vtkPointsVec->InsertNextPoint(updatedPointsFlat[vid * 3 + 0], updatedPointsFlat[vid * 3 + 1], updatedPointsFlat[vid * 3 + 2]);
+                vtkPointsVec->InsertNextPoint(updatedPointsFlatVector[vid * 3 + 0], updatedPointsFlatVector[vid * 3 + 1], updatedPointsFlatVector[vid * 3 + 2]);
 
-            auto cells = AlgorithmHelper::GetTriangleTopologyAsCellArray(newTrianglesVidsFlat);
+            auto cells = AlgorithmHelper::GetTriangleTopologyAsCellArray(updatedTriangleVidsFlatVector);
 
             currentMesh->SetPoints(vtkPointsVec);
             currentMesh->SetPolys(cells);
