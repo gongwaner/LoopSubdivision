@@ -27,8 +27,6 @@ namespace Algorithm
         const auto cellsCnt = mesh->GetNumberOfCells();
         triangleVidsFlatVector = std::vector<int>(cellsCnt * 3);
 
-        std::unordered_set<std::pair<int, int>, PairHash> visited;
-
         //iterate through all triangles
         for(auto cellId = 0; cellId < cellsCnt; ++cellId)
         {
@@ -43,9 +41,8 @@ namespace Algorithm
 
                 //create a canonical edge key
                 const auto key = (v1 < v2) ? std::make_pair(v1, v2) : std::make_pair(v2, v1);
-                if(!visited.count(key))
+                if(!vidsToEdgeMap.count(key))
                 {
-                    visited.insert(key);
                     vidsToEdgeMap[key] = edgeVidsFlatVector.size() / 2;
 
                     edgeVidsFlatVector.push_back(key.first);
@@ -303,12 +300,9 @@ namespace Algorithm
 
             auto cells = AlgorithmHelper::GetTriangleTopologyAsCellArray(newTrianglesVidsFlat);
 
-            auto newMesh = vtkSmartPointer<vtkPolyData>::New();
-            newMesh->SetPoints(vtkPointsVec);
-            newMesh->SetPolys(cells);
-            newMesh->Modified();
-
-            currentMesh->DeepCopy(newMesh);
+            currentMesh->SetPoints(vtkPointsVec);
+            currentMesh->SetPolys(cells);
+            currentMesh->Modified();
         }
 
         return currentMesh;
