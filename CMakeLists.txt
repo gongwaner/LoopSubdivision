@@ -35,7 +35,8 @@ add_subdirectory(CommonUtility)
 add_executable(${PROJECT_NAME} MACOSX_BUNDLE
         src/main.cpp
         src/AlgorithmHelper.cpp
-        src/LoopSubdivision.cpp
+        src/LoopSubdivisionAoS.cpp
+        src/LoopSubdivisionSoA.cpp
         src/PairHash.h
 )
 

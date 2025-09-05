@@ -1,4 +1,4 @@
-#include "LoopSubdivision.h"
+#include "LoopSubdivisionAoS.h"
 
 #include <unordered_set>
 #include <numbers>//for PI
@@ -14,7 +14,7 @@
 #include "AlgorithmHelper.h"
 
 
-namespace Algorithm
+namespace AlgorithmAoS
 {
     struct InputMeshData
     {

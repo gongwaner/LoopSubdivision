@@ -126,4 +126,34 @@ namespace AlgorithmHelper
 
         return cells;
     }
+
+    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<int>& triangleV0Ids,
+                                                                 const std::vector<int>& triangleV1Ids,
+                                                                 const std::vector<int>& triangleV2Ids)
+    {
+        auto cells = vtkSmartPointer<vtkCellArray>::New();
+        auto connectivity = vtkSmartPointer<vtkIdTypeArray>::New();
+
+        const auto numTriangles = triangleV0Ids.size();
+
+        //each triangle needs 3 vertices and a leading '3' for the count.
+        connectivity->SetNumberOfComponents(1);
+        connectivity->SetNumberOfValues(numTriangles * 4);
+
+        vtkIdType* connData = connectivity->GetPointer(0);
+        vtkIdType connIdx = 0;
+
+        //fill the connectivity array directly
+        for(int i = 0; i < numTriangles; i++)
+        {
+            connData[connIdx++] = 3;//points number in the cell
+            connData[connIdx++] = triangleV0Ids[i];
+            connData[connIdx++] = triangleV1Ids[i];
+            connData[connIdx++] = triangleV2Ids[i];
+        }
+
+        cells->SetCells(numTriangles, connectivity);
+
+        return cells;
+    }
 }

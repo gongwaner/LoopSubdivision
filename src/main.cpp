@@ -5,7 +5,8 @@
 #include "IOUtil.h"
 
 #include "AlgorithmHelper.h"
-#include "LoopSubdivision.h"
+#include "LoopSubdivisionAoS.h"
+#include "LoopSubdivisionSoA.h"
 
 
 int main()
@@ -17,11 +18,31 @@ int main()
 
     const int iterationCount = 2;
 
-    const auto resultMesh = Algorithm::GetLoopSubdivisionMesh(mesh, iterationCount);
+    {
+        auto start = std::chrono::high_resolution_clock::now();
 
-    const auto fileDir = dataDir / "result.stl";
-    IOUtil::WriteMesh(fileDir.string(), resultMesh);
+        const auto resultMesh = AlgorithmAoS::GetLoopSubdivisionMesh(mesh, iterationCount);
 
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "GetLoopSubdivisionMesh() AoS version takes " << duration << " ms" << std::endl;
+
+        const auto fileDir = dataDir / "resultAoS.stl";
+        IOUtil::WriteMesh(fileDir.string(), resultMesh);
+    }
+
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+
+        const auto resultMesh = AlgorithmSoA::GetLoopSubdivisionMesh(mesh, iterationCount);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "GetLoopSubdivisionMesh() SoA version takes " << duration << " ms" << std::endl;
+
+        const auto fileDir = dataDir / "resultSoA.stl";
+        IOUtil::WriteMesh(fileDir.string(), resultMesh);
+    }
 
     return 0;
 }
