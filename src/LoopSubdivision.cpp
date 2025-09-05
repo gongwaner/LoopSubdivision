@@ -23,7 +23,8 @@ namespace Algorithm
         std::vector<int> triangleVidsFlatVector;
         std::vector<int> vertexNeighborVidsFlatVector;
         std::vector<unsigned int> vertexNeighborOffsetVector;
-        std::vector<std::vector<int>> edgeNeighborVidsVector;
+        std::vector<int> edgeNeighborVidsFlatVector;
+        std::vector<unsigned int> edgeNeighborOffsetVector;
         std::vector<int> triangleEidsFlatVector;
         size_t pointsCnt;
         size_t edgesCnt;
@@ -108,7 +109,7 @@ namespace Algorithm
         vertexNeighborOffsetVector = std::vector<unsigned int>(pointsCnt + 1);
         vertexNeighborOffsetVector[0] = 0;//always starts with 0
 
-        for(auto vid = 0; vid < pointsCnt; vid++)
+        for(auto vid = 0; vid < pointsCnt; ++vid)
         {
             const auto& neighborVids = adjacencyMatrix[vid];
             for(const auto neighborVid: neighborVids)
@@ -124,11 +125,12 @@ namespace Algorithm
                           const std::vector<int>& edgeVidsFlatVector,
                           const std::vector<int>& boundaryEdgeVidsFlatVector,
                           const std::unordered_map<std::pair<int, int>, int, PairHash>& vidsToEdgeMap,
-                          std::vector<std::vector<int>>& edgeNeighborVidsVec,
+                          std::vector<int>& edgeNeighborVidsFlatVector,
+                          std::vector<unsigned int>& edgeNeighborOffsetVector,
                           std::vector<int>& triangleEidsFlatVector)
     {
         const auto edgeCnt = edgeVidsFlatVector.size() / 2;
-        edgeNeighborVidsVec = std::vector<std::vector<int>>(edgeCnt);
+        std::vector<std::vector<int>> edgeNeighborVidsVec(edgeCnt);
 
         const auto cellsCnt = triangleVidsFlatVector.size() / 3;
         triangleEidsFlatVector = std::vector<int>(cellsCnt * 3);
@@ -177,6 +179,21 @@ namespace Algorithm
                 edgeNeighborVidsVec[eid].push_back(v3);
             }
         }
+
+        //flatten edgeNeighborVidsVec
+        edgeNeighborVidsFlatVector.clear();
+        edgeNeighborOffsetVector = std::vector<unsigned int>(edgeCnt + 1);
+
+        for(auto eid = 0; eid < edgeCnt; ++eid)
+        {
+            const auto& neighborVids = edgeNeighborVidsVec[eid];
+            for(const auto neighborVid: neighborVids)
+            {
+                edgeNeighborVidsFlatVector.push_back(neighborVid);
+            }
+
+            edgeNeighborOffsetVector[eid + 1] = edgeNeighborOffsetVector[eid] + neighborVids.size();
+        }
     }
 
     InputMeshData GetInputMeshData(vtkPolyData* mesh)
@@ -195,10 +212,11 @@ namespace Algorithm
         InitializeAdjacencyList(mesh->GetNumberOfPoints(), edgeVidsFlatVector, boundaryEdgeVidsFlatVector,
                                 vertexNeighborVidsFlatVector, vertexNeighborOffsetVector);
 
-        std::vector<std::vector<int>> edgeNeighborVidsVector;
+        std::vector<int> edgeNeighborVidsFlatVector;
+        std::vector<unsigned int> edgeNeighborOffsetVector;
         std::vector<int> triangleEidsFlatVector;
         ProcessTriangles(triangleVidsFlatVector, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
-                         edgeNeighborVidsVector, triangleEidsFlatVector);
+                         edgeNeighborVidsFlatVector, edgeNeighborOffsetVector, triangleEidsFlatVector);
 
         InputMeshData meshData;
         meshData.originalPointsFlatVector = originalPointsFlatVector;
@@ -206,7 +224,8 @@ namespace Algorithm
         meshData.triangleVidsFlatVector = triangleVidsFlatVector;
         meshData.vertexNeighborVidsFlatVector = vertexNeighborVidsFlatVector;
         meshData.vertexNeighborOffsetVector = vertexNeighborOffsetVector;
-        meshData.edgeNeighborVidsVector = edgeNeighborVidsVector;
+        meshData.edgeNeighborVidsFlatVector = edgeNeighborVidsFlatVector;
+        meshData.edgeNeighborOffsetVector = edgeNeighborOffsetVector;
         meshData.triangleEidsFlatVector = triangleEidsFlatVector;
         meshData.pointsCnt = mesh->GetNumberOfPoints();
         meshData.edgesCnt = edgeVidsFlatVector.size() / 2;
@@ -234,8 +253,10 @@ namespace Algorithm
             for(int i = 0; i < 3; ++i)
                 updatedPointsFlatVector[index * 3 + i] = meshData.originalPointsFlatVector[vid0 * 3 + i] + meshData.originalPointsFlatVector[vid1 * 3 + i];
 
-            const auto& neighborVids = meshData.edgeNeighborVidsVector[edgeId];
-            if(neighborVids.empty())//boundary edge
+            const auto neighborVidStartIndex = meshData.edgeNeighborOffsetVector[edgeId];
+            const auto neighborVidEndIndex = meshData.edgeNeighborOffsetVector[edgeId + 1];
+
+            if(neighborVidStartIndex == neighborVidEndIndex)//boundary edge
             {
                 for(int i = 0; i < 3; ++i)
                     updatedPointsFlatVector[index * 3 + i] *= 0.5;
@@ -245,10 +266,11 @@ namespace Algorithm
                 for(int i = 0; i < 3; ++i)
                     updatedPointsFlatVector[index * 3 + i] *= endpointsWeight;
 
-                for(const auto vid: neighborVids)
+                for(auto n = neighborVidStartIndex; n < neighborVidEndIndex; ++n)
                 {
+                    const auto neighborVid = meshData.edgeNeighborVidsFlatVector[n];
                     for(int i = 0; i < 3; ++i)
-                        updatedPointsFlatVector[index * 3 + i] += neighborWeight * meshData.originalPointsFlatVector[vid * 3 + i];
+                        updatedPointsFlatVector[index * 3 + i] += neighborWeight * meshData.originalPointsFlatVector[neighborVid * 3 + i];
                 }
             }
         }
