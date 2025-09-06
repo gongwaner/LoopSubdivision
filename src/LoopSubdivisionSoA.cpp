@@ -78,10 +78,16 @@ namespace AlgorithmSoA
         triangleV2Ids = std::vector<int>(cellsCnt);
 
         //iterate through all triangles
-        for(auto cellId = 0; cellId < cellsCnt; ++cellId)
+        vtkCellArray* polys = mesh->GetPolys();
+        polys->InitTraversal();
+
+        auto pointIds = vtkSmartPointer<vtkIdList>::New();
+
+        size_t cellId = 0;
+        while(polys->GetNextCell(pointIds))
         {
-            vtkCell* cell = mesh->GetCell(cellId);
-            vtkIdList* pointIds = cell->GetPointIds();
+            if(pointIds->GetNumberOfIds() != 3)//a triangle has 3 points
+                continue;
 
             triangleV0Ids[cellId] = pointIds->GetId(0);
             triangleV1Ids[cellId] = pointIds->GetId(1);
@@ -103,6 +109,8 @@ namespace AlgorithmSoA
                     edgeV1Vids.push_back(key.second);
                 }
             }
+
+            ++cellId;
         }
     }
 

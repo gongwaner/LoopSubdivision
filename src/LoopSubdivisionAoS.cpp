@@ -39,10 +39,16 @@ namespace AlgorithmAoS
         triangleVidsFlatVector = std::vector<int>(cellsCnt * 3);
 
         //iterate through all triangles
-        for(auto cellId = 0; cellId < cellsCnt; ++cellId)
+        vtkCellArray* polys = mesh->GetPolys();
+        polys->InitTraversal();
+
+        auto pointIds = vtkSmartPointer<vtkIdList>::New();
+
+        size_t cellId = 0;
+        while(polys->GetNextCell(pointIds))
         {
-            vtkCell* cell = mesh->GetCell(cellId);
-            vtkIdList* pointIds = cell->GetPointIds();
+            if(pointIds->GetNumberOfIds() != 3)//a triangle has 3 points
+                continue;
 
             //get the three edges of the current triangle
             for(int i = 0; i < 3; ++i)
@@ -62,6 +68,8 @@ namespace AlgorithmAoS
 
                 triangleVidsFlatVector[cellId * 3 + i] = v1;
             }
+
+            ++cellId;
         }
     }
 
