@@ -190,9 +190,9 @@ namespace AlgorithmSoA
     }
 
     void ProcessTriangles(const size_t edgesCnt,
-                          const std::vector<unsigned int>& triangleV0Vids,
-                          const std::vector<unsigned int>& triangleV1Vids,
-                          const std::vector<unsigned int>& triangleV2Vids,
+                          const std::vector<unsigned int>& triangleV0Ids,
+                          const std::vector<unsigned int>& triangleV1Ids,
+                          const std::vector<unsigned int>& triangleV2Ids,
                           const std::unordered_set<unsigned int>& boundaryEdgeIdsSet,
                           const std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
                           std::vector<unsigned int>& triangleE0Ids,
@@ -203,7 +203,7 @@ namespace AlgorithmSoA
     {
         std::vector<std::vector<unsigned int>> edgeNeighborVidsVec(edgesCnt);
 
-        const auto cellsCnt = triangleV0Vids.size();
+        const auto cellsCnt = triangleV0Ids.size();
         triangleE0Ids = std::vector<unsigned int>(cellsCnt);
         triangleE1Ids = std::vector<unsigned int>(cellsCnt);
         triangleE2Ids = std::vector<unsigned int>(cellsCnt);
@@ -213,9 +213,9 @@ namespace AlgorithmSoA
         {
             const unsigned int pointIds[3]
             {
-                triangleV0Vids[cellId],
-                triangleV1Vids[cellId],
-                triangleV2Vids[cellId],
+                triangleV0Ids[cellId],
+                triangleV1Ids[cellId],
+                triangleV2Ids[cellId],
             };
 
             //get the three edges of the current triangle
@@ -230,7 +230,7 @@ namespace AlgorithmSoA
                 const auto eid = vidsToEdgeMap.at(key);
                 eids[i] = eid;
 
-                if(boundaryEdgeIdsSet.count(eid))
+                if(boundaryEdgeIdsSet.contains(eid))
                     continue;
 
                 const auto v3 = pointIds[(i + 2) % 3];
@@ -321,9 +321,8 @@ namespace AlgorithmSoA
         const auto pointsCnt = meshData.positionsX.size();
         const auto edgesCnt = meshData.edgeV0Vids.size();
 
-        const double endpointsWeight = 0.375;//3/8
-        const double neighborWeight = 0.125;//1/8
-        const auto twoPI = 2.0 * std::numbers::pi;
+        constexpr double endpointsWeight = 0.375;//3/8
+        constexpr double twoPI = 2.0 * std::numbers::pi;
 
         const auto newPointsCnt = pointsCnt + edgesCnt;
         updatedPositionsX = std::vector<double>(newPointsCnt);
@@ -357,6 +356,7 @@ namespace AlgorithmSoA
 
                 for(auto n = neighborVidStartIndex; n < neighborVidEndIndex; ++n)
                 {
+                    constexpr double neighborWeight = 0.125;
                     const auto neighborVid = meshData.edgeNeighborVidsFlatVector[n];
 
                     updatedPositionsX[index] += neighborWeight * meshData.positionsX[neighborVid];
@@ -389,9 +389,11 @@ namespace AlgorithmSoA
                 //interior vertex
                 //β=1/n {5/8−[3/8 + 1/4 cos(2π/n) ]^2 }
                 //v_old' = (1−n⋅β)⋅v_old+Σ_(j=1)^n (β⋅v_j )
+                constexpr double fiveOnEight = 0.625;
+
                 const auto inner_bracket = endpointsWeight + (1.0 / 4.0) * cos(twoPI / n);
                 const auto bracket_squared = inner_bracket * inner_bracket;
-                beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
+                beta = (1.0 / n) * (fiveOnEight - bracket_squared);
 
                 const auto factor = (1.0 - n * beta);
                 updatedPositionsX[vid] = factor * meshData.positionsX[vid];
@@ -415,10 +417,10 @@ namespace AlgorithmSoA
                                 std::vector<unsigned int>& updatedTriangleV1Ids,
                                 std::vector<unsigned int>& updatedTriangleV2Ids)
     {
-        const int subTrianglesCnt = 4;
+        constexpr int subTrianglesCnt = 4;
         const auto cellsCnt = meshData.triangleV0Ids.size();
         const auto updatedCellsCnt = cellsCnt * subTrianglesCnt;
-        const int pointsCnt = meshData.positionsX.size();
+        const unsigned int pointsCnt = meshData.positionsX.size();
 
         updatedTriangleV0Ids = std::vector<unsigned int>(updatedCellsCnt);
         updatedTriangleV1Ids = std::vector<unsigned int>(updatedCellsCnt);

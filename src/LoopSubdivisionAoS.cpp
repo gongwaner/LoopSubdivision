@@ -148,7 +148,7 @@ namespace AlgorithmAoS
     }
 
     void ProcessTriangles(const size_t edgeCnt, const std::vector<unsigned int>& triangleVidsFlatVector,
-                          std::unordered_set<unsigned int> boundaryEdgeIdsSet,
+                          const std::unordered_set<unsigned int>& boundaryEdgeIdsSet,
                           const std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
                           std::vector<unsigned int>& triangleEidsFlatVector,
                           std::vector<unsigned int>& edgeNeighborVidsFlatVector,
@@ -243,9 +243,8 @@ namespace AlgorithmAoS
     std::vector<double> GetUpdatedPointsFlatVector(const InputMeshData& meshData)
     {
         //step1: iterate through edges and add new vertices
-        const double endpointsWeight = 0.375;//3/8
-        const double neighborWeight = 0.125;//1/8
-        const auto twoPI = 2.0 * std::numbers::pi;
+        constexpr double endpointsWeight = 0.375;//3/8
+        constexpr double twoPI = 2.0 * std::numbers::pi;
 
         const auto pointsCnt = meshData.originalPointsFlatVector.size() / 3;
         const auto edgesCnt = meshData.edgeVidsFlatVector.size() / 2;
@@ -277,6 +276,7 @@ namespace AlgorithmAoS
 
                 for(auto n = neighborVidStartIndex; n < neighborVidEndIndex; ++n)
                 {
+                    constexpr double neighborWeight = 0.125;
                     const auto neighborVid = meshData.edgeNeighborVidsFlatVector[n];
                     for(int i = 0; i < 3; ++i)
                         updatedPointsFlatVector[index * 3 + i] += neighborWeight * meshData.originalPointsFlatVector[neighborVid * 3 + i];
@@ -306,9 +306,11 @@ namespace AlgorithmAoS
                 //interior vertex
                 //β=1/n {5/8−[3/8 + 1/4 cos(2π/n) ]^2 }
                 //v_old' = (1−n⋅β)⋅v_old+Σ_(j=1)^n (β⋅v_j )
+                constexpr double fiveOnEight = 0.625;
+
                 const auto inner_bracket = endpointsWeight + (1.0 / 4.0) * cos(twoPI / n);
                 const auto bracket_squared = inner_bracket * inner_bracket;
-                beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
+                beta = (1.0 / n) * (fiveOnEight - bracket_squared);
 
                 const auto factor = (1.0 - n * beta);
                 for(int i = 0; i < 3; ++i)
