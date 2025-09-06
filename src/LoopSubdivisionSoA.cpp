@@ -68,7 +68,8 @@ namespace AlgorithmSoA
                              std::vector<unsigned int>& edgeV0Vids, std::vector<unsigned int>& edgeV1Vids,
                              std::vector<unsigned int>& triangleV0Ids, std::vector<unsigned int>& triangleV1Ids, std::vector<unsigned int>& triangleV2Ids,
                              std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
-                             std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
+                             std::vector<unsigned int>& boundaryEdgeStartVids,
+                             std::vector<unsigned int>& boundaryEdgeEndVids,
                              std::unordered_set<unsigned int>& boundaryEdgeIdsSet)
     {
         edgeV0Vids.clear();
@@ -121,23 +122,25 @@ namespace AlgorithmSoA
         }
 
         //construct boundary edge ids
-        boundaryEdgeVidsFlatVector.clear();
+        boundaryEdgeStartVids.clear();
+        boundaryEdgeEndVids.clear();
         boundaryEdgeIdsSet.clear();
         for(const auto& [edgeVids, count]: edgeVidsCountMap)
         {
             if(count == 1)
             {
-                const auto eid = vidsToEdgeMap.at(edgeVids);
-                boundaryEdgeVidsFlatVector.push_back(edgeVids.first);
-                boundaryEdgeVidsFlatVector.push_back(edgeVids.second);
-                boundaryEdgeIdsSet.insert(eid);
+                boundaryEdgeStartVids.push_back(edgeVids.first);
+                boundaryEdgeEndVids.push_back(edgeVids.second);
+
+                boundaryEdgeIdsSet.insert(vidsToEdgeMap.at(edgeVids));
             }
         }
     }
 
     void InitializeAdjacencyList(const size_t pointsCnt,
                                  const std::vector<unsigned int>& edgeStartVids, const std::vector<unsigned int>& edgeEndVids,
-                                 const std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
+                                 const std::vector<unsigned int>& boundaryEdgeStartVids,
+                                 const std::vector<unsigned int>& boundaryEdgeEndVids,
                                  std::vector<unsigned int>& vertexNeighborVidsFlatVector,
                                  std::vector<unsigned int>& vertexNeighborOffsetVector)
     {
@@ -145,10 +148,10 @@ namespace AlgorithmSoA
         std::vector<bool> isBoundaryVid(pointsCnt, false);
 
         //process all boundary edges
-        for(auto i = 0; i < boundaryEdgeVidsFlatVector.size() / 2; ++i)
+        for(auto i = 0; i < boundaryEdgeStartVids.size(); ++i)
         {
-            const auto startVid = boundaryEdgeVidsFlatVector[i * 2];
-            const auto endVid = boundaryEdgeVidsFlatVector[i * 2 + 1];
+            const auto startVid = boundaryEdgeStartVids[i];
+            const auto endVid = boundaryEdgeEndVids[i];
 
             isBoundaryVid[startVid] = true;
             isBoundaryVid[endVid] = true;
@@ -271,14 +274,16 @@ namespace AlgorithmSoA
         std::vector<unsigned int> triangleV1Ids;
         std::vector<unsigned int> triangleV2Ids;
         std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash> vidsToEdgeMap;
-        std::vector<unsigned int> boundaryEdgeVidsFlatVector;
+        std::vector<unsigned int> boundaryEdgeStartVids;
+        std::vector<unsigned int> boundaryEdgeEndVids;
         std::unordered_set<unsigned int> boundaryEdgeIdsSet;
         InitializeEdgeTable(mesh, edgeV0Vids, edgeV1Vids, triangleV0Ids, triangleV1Ids, triangleV2Ids,
-                            vidsToEdgeMap, boundaryEdgeVidsFlatVector, boundaryEdgeIdsSet);
+                            vidsToEdgeMap, boundaryEdgeStartVids, boundaryEdgeEndVids, boundaryEdgeIdsSet);
 
         std::vector<unsigned int> vertexNeighborVidsFlatVector;
         std::vector<unsigned int> vertexNeighborOffsetVector;
-        InitializeAdjacencyList(mesh->GetNumberOfPoints(), edgeV0Vids, edgeV1Vids, boundaryEdgeVidsFlatVector,
+        InitializeAdjacencyList(mesh->GetNumberOfPoints(), edgeV0Vids, edgeV1Vids,
+                                boundaryEdgeStartVids, boundaryEdgeEndVids,
                                 vertexNeighborVidsFlatVector, vertexNeighborOffsetVector);
 
         const auto edgesCnt = edgeV0Vids.size();

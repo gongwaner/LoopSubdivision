@@ -86,10 +86,10 @@ namespace AlgorithmAoS
         {
             if(count == 1)
             {
-                const auto eid = vidsToEdgeMap.at(edgeVids);
                 boundaryEdgeVidsFlatVector.push_back(edgeVids.first);
                 boundaryEdgeVidsFlatVector.push_back(edgeVids.second);
-                boundaryEdgeIdsSet.insert(eid);
+
+                boundaryEdgeIdsSet.insert(vidsToEdgeMap.at(edgeVids));
             }
         }
     }
