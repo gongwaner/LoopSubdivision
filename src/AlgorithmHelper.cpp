@@ -28,7 +28,7 @@ namespace AlgorithmHelper
         return points;
     }
 
-    std::vector<int> GetBoundaryEdgeVidsFlatVector(vtkPolyData* mesh)
+    std::vector<unsigned int> GetBoundaryEdgeVidsFlatVector(vtkPolyData* mesh)
     {
         const auto arrayName = "OriginalIDs";
 
@@ -63,7 +63,7 @@ namespace AlgorithmHelper
             return {};
         }
 
-        std::vector<int> boundaryEdgeVids(edgesCnt * 2);
+        std::vector<unsigned int> boundaryEdgeVids(edgesCnt * 2);
         for(auto i = 0; i < edgesCnt; i++)
         {
             auto cell = vtkSmartPointer<vtkGenericCell>::New();
@@ -71,35 +71,15 @@ namespace AlgorithmHelper
 
             if(cell->GetCellType() == VTK_LINE)
             {
-                const auto startVid = originalIDsArray->GetTuple1(cell->GetPointId(0));
-                const auto endVid = originalIDsArray->GetTuple1(cell->GetPointId(1));
-                boundaryEdgeVids[i * 2] = startVid;
-                boundaryEdgeVids[i * 2 + 1] = endVid;
+                boundaryEdgeVids[i * 2] = originalIDsArray->GetTuple1(cell->GetPointId(0));;
+                boundaryEdgeVids[i * 2 + 1] = originalIDsArray->GetTuple1(cell->GetPointId(1));;
             }
         }
 
         return boundaryEdgeVids;
     }
 
-    std::unordered_map<std::pair<int, int>, int, PairHash> GetVidsToEdgeMap(const std::vector<std::pair<int, int>>& edgeVidsVector)
-    {
-        const auto count = edgeVidsVector.size();
-        std::unordered_map<std::pair<int, int>, int, PairHash> vidsToEdgeMap;
-
-        //traverse all edges
-        for(auto i = 0; i < count; i++)
-        {
-            const auto startVid = edgeVidsVector[i].first;
-            const auto endVid = edgeVidsVector[i].second;
-            const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
-
-            vidsToEdgeMap[key] = i;
-        }
-
-        return vidsToEdgeMap;
-    }
-
-    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<int>& triangleVids)
+    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<unsigned int>& triangleVids)
     {
         auto cells = vtkSmartPointer<vtkCellArray>::New();
         auto connectivity = vtkSmartPointer<vtkIdTypeArray>::New();
@@ -127,9 +107,9 @@ namespace AlgorithmHelper
         return cells;
     }
 
-    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<int>& triangleV0Ids,
-                                                                 const std::vector<int>& triangleV1Ids,
-                                                                 const std::vector<int>& triangleV2Ids)
+    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<unsigned int>& triangleV0Ids,
+                                                                 const std::vector<unsigned int>& triangleV1Ids,
+                                                                 const std::vector<unsigned int>& triangleV2Ids)
     {
         auto cells = vtkSmartPointer<vtkCellArray>::New();
         auto connectivity = vtkSmartPointer<vtkIdTypeArray>::New();

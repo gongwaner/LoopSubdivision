@@ -12,6 +12,7 @@
 #include "IOUtil.h"
 
 #include "AlgorithmHelper.h"
+#include "PairHash.h"
 
 
 namespace AlgorithmSoA
@@ -24,23 +25,23 @@ namespace AlgorithmSoA
         std::vector<double> positionsZ;
 
         //edge end vids
-        std::vector<int> edgeV0Vids;
-        std::vector<int> edgeV1Vids;
+        std::vector<unsigned int> edgeV0Vids;
+        std::vector<unsigned int> edgeV1Vids;
 
         //triangle vertex ids
-        std::vector<int> triangleV0Ids;
-        std::vector<int> triangleV1Ids;
-        std::vector<int> triangleV2Ids;
+        std::vector<unsigned int> triangleV0Ids;
+        std::vector<unsigned int> triangleV1Ids;
+        std::vector<unsigned int> triangleV2Ids;
 
         //triangle edge ids
-        std::vector<int> triangleE0Ids;
-        std::vector<int> triangleE1Ids;
-        std::vector<int> triangleE2Ids;
+        std::vector<unsigned int> triangleE0Ids;
+        std::vector<unsigned int> triangleE1Ids;
+        std::vector<unsigned int> triangleE2Ids;
 
         //neighbors
-        std::vector<int> vertexNeighborVidsFlatVector;
+        std::vector<unsigned int> vertexNeighborVidsFlatVector;
         std::vector<unsigned int> vertexNeighborOffsetVector;
-        std::vector<int> edgeNeighborVidsFlatVector;
+        std::vector<unsigned int> edgeNeighborVidsFlatVector;
         std::vector<unsigned int> edgeNeighborOffsetVector;
     };
 
@@ -64,8 +65,8 @@ namespace AlgorithmSoA
     }
 
     void InitializeEdgeTable(vtkPolyData* mesh,
-                             std::vector<int>& edgeV0Vids, std::vector<int>& edgeV1Vids,
-                             std::vector<int>& triangleV0Ids, std::vector<int>& triangleV1Ids, std::vector<int>& triangleV2Ids,
+                             std::vector<unsigned int>& edgeV0Vids, std::vector<unsigned int>& edgeV1Vids,
+                             std::vector<unsigned int>& triangleV0Ids, std::vector<unsigned int>& triangleV1Ids, std::vector<unsigned int>& triangleV2Ids,
                              std::unordered_map<std::pair<int, int>, unsigned int, PairHash>& vidsToEdgeMap)
     {
         edgeV0Vids.clear();
@@ -73,9 +74,9 @@ namespace AlgorithmSoA
         vidsToEdgeMap.clear();
 
         const auto cellsCnt = mesh->GetNumberOfCells();
-        triangleV0Ids = std::vector<int>(cellsCnt);
-        triangleV1Ids = std::vector<int>(cellsCnt);
-        triangleV2Ids = std::vector<int>(cellsCnt);
+        triangleV0Ids = std::vector<unsigned int>(cellsCnt);
+        triangleV1Ids = std::vector<unsigned int>(cellsCnt);
+        triangleV2Ids = std::vector<unsigned int>(cellsCnt);
 
         //iterate through all triangles
         vtkCellArray* polys = mesh->GetPolys();
@@ -115,9 +116,9 @@ namespace AlgorithmSoA
     }
 
     void InitializeAdjacencyList(const size_t pointsCnt,
-                                 const std::vector<int>& edgeStartVids, const std::vector<int>& edgeEndVids,
-                                 const std::vector<int>& boundaryEdgeVidsFlatVector,
-                                 std::vector<int>& vertexNeighborVidsFlatVector,
+                                 const std::vector<unsigned int>& edgeStartVids, const std::vector<unsigned int>& edgeEndVids,
+                                 const std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
+                                 std::vector<unsigned int>& vertexNeighborVidsFlatVector,
                                  std::vector<unsigned int>& vertexNeighborOffsetVector)
     {
         std::vector<std::vector<int>> adjacencyMatrix(pointsCnt);
@@ -169,19 +170,20 @@ namespace AlgorithmSoA
     }
 
     void ProcessTriangles(const size_t edgesCnt,
-                          const std::vector<int>& triangleV0Vids, const std::vector<int>& triangleV1Vids, const std::vector<int>& triangleV2Vids,
-                          const std::vector<int>& boundaryEdgeVidsFlatVector,
+                          const std::vector<unsigned int>& triangleV0Vids, const std::vector<unsigned int>& triangleV1Vids,
+                          const std::vector<unsigned int>& triangleV2Vids,
+                          const std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
                           const std::unordered_map<std::pair<int, int>, unsigned int, PairHash>& vidsToEdgeMap,
-                          std::vector<int>& triangleE0Ids, std::vector<int>& triangleE1Ids, std::vector<int>& triangleE2Ids,
-                          std::vector<int>& edgeNeighborVidsFlatVector,
+                          std::vector<unsigned int>& triangleE0Ids, std::vector<unsigned int>& triangleE1Ids, std::vector<unsigned int>& triangleE2Ids,
+                          std::vector<unsigned int>& edgeNeighborVidsFlatVector,
                           std::vector<unsigned int>& edgeNeighborOffsetVector)
     {
-        std::vector<std::vector<int>> edgeNeighborVidsVec(edgesCnt);
+        std::vector<std::vector<unsigned int>> edgeNeighborVidsVec(edgesCnt);
 
         const auto cellsCnt = triangleV0Vids.size();
-        triangleE0Ids = std::vector<int>(cellsCnt);
-        triangleE1Ids = std::vector<int>(cellsCnt);
-        triangleE2Ids = std::vector<int>(cellsCnt);
+        triangleE0Ids = std::vector<unsigned int>(cellsCnt);
+        triangleE1Ids = std::vector<unsigned int>(cellsCnt);
+        triangleE2Ids = std::vector<unsigned int>(cellsCnt);
 
         //construct boundary eids
         std::unordered_set<unsigned int> boundaryEidsSet;
@@ -202,7 +204,7 @@ namespace AlgorithmSoA
         //iterate through all triangles
         for(auto cellId = 0; cellId < cellsCnt; ++cellId)
         {
-            const int pointIds[3]
+            const unsigned int pointIds[3]
             {
                 triangleV0Vids[cellId],
                 triangleV1Vids[cellId],
@@ -210,7 +212,7 @@ namespace AlgorithmSoA
             };
 
             //get the three edges of the current triangle
-            int eids[3];
+            unsigned int eids[3];
             for(int i = 0; i < 3; ++i)
             {
                 const auto v1 = pointIds[i];
@@ -256,26 +258,26 @@ namespace AlgorithmSoA
         std::vector<double> positionsZ;
         GetMeshPoints(mesh, positionsX, positionsY, positionsZ);
 
-        std::vector<int> edgeV0Vids;
-        std::vector<int> edgeV1Vids;
-        std::vector<int> triangleV0Ids;
-        std::vector<int> triangleV1Ids;
-        std::vector<int> triangleV2Ids;
+        std::vector<unsigned int> edgeV0Vids;
+        std::vector<unsigned int> edgeV1Vids;
+        std::vector<unsigned int> triangleV0Ids;
+        std::vector<unsigned int> triangleV1Ids;
+        std::vector<unsigned int> triangleV2Ids;
         std::unordered_map<std::pair<int, int>, unsigned int, PairHash> vidsToEdgeMap;
         InitializeEdgeTable(mesh, edgeV0Vids, edgeV1Vids, triangleV0Ids, triangleV1Ids, triangleV2Ids, vidsToEdgeMap);
 
         const auto boundaryEdgeVidsFlatVector = AlgorithmHelper::GetBoundaryEdgeVidsFlatVector(mesh);
 
-        std::vector<int> vertexNeighborVidsFlatVector;
+        std::vector<unsigned int> vertexNeighborVidsFlatVector;
         std::vector<unsigned int> vertexNeighborOffsetVector;
         InitializeAdjacencyList(mesh->GetNumberOfPoints(), edgeV0Vids, edgeV1Vids, boundaryEdgeVidsFlatVector,
                                 vertexNeighborVidsFlatVector, vertexNeighborOffsetVector);
 
         const auto edgesCnt = edgeV0Vids.size();
-        std::vector<int> triangleE0Ids;
-        std::vector<int> triangleE1Ids;
-        std::vector<int> triangleE2Ids;
-        std::vector<int> edgeNeighborVidsFlatVector;
+        std::vector<unsigned int> triangleE0Ids;
+        std::vector<unsigned int> triangleE1Ids;
+        std::vector<unsigned int> triangleE2Ids;
+        std::vector<unsigned int> edgeNeighborVidsFlatVector;
         std::vector<unsigned int> edgeNeighborOffsetVector;
         ProcessTriangles(edgesCnt, triangleV0Ids, triangleV1Ids, triangleV2Ids,
                          boundaryEdgeVidsFlatVector, vidsToEdgeMap,
@@ -401,25 +403,25 @@ namespace AlgorithmSoA
     }
 
     void GetUpdatedTriangleVids(const InputMeshData& meshData,
-                                std::vector<int>& updatedTriangleV0Ids,
-                                std::vector<int>& updatedTriangleV1Ids,
-                                std::vector<int>& updatedTriangleV2Ids)
+                                std::vector<unsigned int>& updatedTriangleV0Ids,
+                                std::vector<unsigned int>& updatedTriangleV1Ids,
+                                std::vector<unsigned int>& updatedTriangleV2Ids)
     {
         const int subTrianglesCnt = 4;
         const auto cellsCnt = meshData.triangleV0Ids.size();
         const auto updatedCellsCnt = cellsCnt * subTrianglesCnt;
         const int pointsCnt = meshData.positionsX.size();
 
-        updatedTriangleV0Ids = std::vector<int>(updatedCellsCnt);
-        updatedTriangleV1Ids = std::vector<int>(updatedCellsCnt);
-        updatedTriangleV2Ids = std::vector<int>(updatedCellsCnt);
+        updatedTriangleV0Ids = std::vector<unsigned int>(updatedCellsCnt);
+        updatedTriangleV1Ids = std::vector<unsigned int>(updatedCellsCnt);
+        updatedTriangleV2Ids = std::vector<unsigned int>(updatedCellsCnt);
 
         for(auto cellID = 0; cellID < cellsCnt; ++cellID)
         {
             //newVertices internally maps eid->points. eg, eid 0->newVertices[0]
             //here we need to know the index of point in updatedPoints
             //the index would be eid+oldpoints.count
-            const int newVids[3]
+            const unsigned int newVids[3]
             {
                 meshData.triangleE0Ids[cellID] + pointsCnt,
                 meshData.triangleE1Ids[cellID] + pointsCnt,
@@ -467,9 +469,9 @@ namespace AlgorithmSoA
             std::vector<double> updatedPositionsZ;
             GetUpdatedPointsFlatVector(meshData, updatedPositionsX, updatedPositionsY, updatedPositionsZ);
 
-            std::vector<int> updatedTriangleV0Ids;
-            std::vector<int> updatedTriangleV1Ids;
-            std::vector<int> updatedTriangleV2Ids;
+            std::vector<unsigned int> updatedTriangleV0Ids;
+            std::vector<unsigned int> updatedTriangleV1Ids;
+            std::vector<unsigned int> updatedTriangleV2Ids;
             GetUpdatedTriangleVids(meshData, updatedTriangleV0Ids, updatedTriangleV1Ids, updatedTriangleV2Ids);
 
             //update mesh topology

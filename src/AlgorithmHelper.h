@@ -1,11 +1,8 @@
 #pragma once
 
 #include <filesystem>
-#include <unordered_map>
 
 #include <vtkSmartPointer.h>
-
-#include "PairHash.h"
 
 
 class vtkPolyData;
@@ -17,13 +14,11 @@ namespace AlgorithmHelper
 
     std::vector<double> GetPointsAsFlatVector(vtkPolyData* mesh);
 
-    std::vector<int> GetBoundaryEdgeVidsFlatVector(vtkPolyData* mesh);
+    std::vector<unsigned int> GetBoundaryEdgeVidsFlatVector(vtkPolyData* mesh);
 
-    std::unordered_map<std::pair<int, int>, int, PairHash> GetVidsToEdgeMap(const std::vector<std::pair<int, int>>& edgeVidsVector);
+    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<unsigned int>& triangleVids);
 
-    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<int>& triangleVids);
-
-    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<int>& triangleV0Ids,
-                                                                 const std::vector<int>& triangleV1Ids,
-                                                                 const std::vector<int>& triangleV2Ids);
+    vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<unsigned int>& triangleV0Ids,
+                                                                 const std::vector<unsigned int>& triangleV1Ids,
+                                                                 const std::vector<unsigned int>& triangleV2Ids);
 }
