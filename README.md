@@ -7,9 +7,9 @@ Implementation of loop subdivision algorithm in
 by *Charles T. Loop* (1987)
 
 ## Prerequisite
-
+c++ 20  
+CMake 3.12+  
 VTK 9.4.0+  
-CMake 3.12+
 
 ## Implementation
 
@@ -32,7 +32,7 @@ The program accepts a triangular mesh file as input. The following file formats 
 
 ### Output
 
-Loop subdivision result mesh file, exported to *result.stl* in *data* folder
+Loop subdivision result mesh files, exported to *resultAoS.stl* and *resultSoA.stl* in *data* folder
 
 ## Build
 
