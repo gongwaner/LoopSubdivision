@@ -26,9 +26,6 @@ namespace AlgorithmAoS
         std::vector<int> edgeNeighborVidsFlatVector;
         std::vector<unsigned int> edgeNeighborOffsetVector;
         std::vector<int> triangleEidsFlatVector;
-        size_t pointsCnt;
-        size_t edgesCnt;
-        size_t cellsCnt;
     };
 
     void InitializeEdgeTable(vtkPolyData* mesh, std::vector<int>& edgeVidsFlatVector,
@@ -121,15 +118,13 @@ namespace AlgorithmAoS
         }
     }
 
-    void ProcessTriangles(const std::vector<int>& triangleVidsFlatVector,
-                          const std::vector<int>& edgeVidsFlatVector,
+    void ProcessTriangles(const size_t edgeCnt, const std::vector<int>& triangleVidsFlatVector,
                           const std::vector<int>& boundaryEdgeVidsFlatVector,
                           const std::unordered_map<std::pair<int, int>, int, PairHash>& vidsToEdgeMap,
                           std::vector<int>& edgeNeighborVidsFlatVector,
                           std::vector<unsigned int>& edgeNeighborOffsetVector,
                           std::vector<int>& triangleEidsFlatVector)
     {
-        const auto edgeCnt = edgeVidsFlatVector.size() / 2;
         std::vector<std::vector<int>> edgeNeighborVidsVec(edgeCnt);
 
         const auto cellsCnt = triangleVidsFlatVector.size() / 3;
@@ -212,10 +207,11 @@ namespace AlgorithmAoS
         InitializeAdjacencyList(mesh->GetNumberOfPoints(), edgeVidsFlatVector, boundaryEdgeVidsFlatVector,
                                 vertexNeighborVidsFlatVector, vertexNeighborOffsetVector);
 
+        const auto edgesCnt = edgeVidsFlatVector.size() / 2;
         std::vector<int> edgeNeighborVidsFlatVector;
         std::vector<unsigned int> edgeNeighborOffsetVector;
         std::vector<int> triangleEidsFlatVector;
-        ProcessTriangles(triangleVidsFlatVector, edgeVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
+        ProcessTriangles(edgesCnt, triangleVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
                          edgeNeighborVidsFlatVector, edgeNeighborOffsetVector, triangleEidsFlatVector);
 
         InputMeshData meshData;
@@ -227,9 +223,6 @@ namespace AlgorithmAoS
         meshData.edgeNeighborVidsFlatVector = edgeNeighborVidsFlatVector;
         meshData.edgeNeighborOffsetVector = edgeNeighborOffsetVector;
         meshData.triangleEidsFlatVector = triangleEidsFlatVector;
-        meshData.pointsCnt = mesh->GetNumberOfPoints();
-        meshData.edgesCnt = edgeVidsFlatVector.size() / 2;
-        meshData.cellsCnt = mesh->GetNumberOfCells();
 
         return meshData;
     }
@@ -241,14 +234,17 @@ namespace AlgorithmAoS
         const double neighborWeight = 0.125;//1/8
         const auto twoPI = 2.0 * std::numbers::pi;
 
-        const auto newPointsCnt = meshData.pointsCnt + meshData.edgesCnt;
+        const auto pointsCnt = meshData.originalPointsFlatVector.size() / 3;
+        const auto edgesCnt = meshData.edgeVidsFlatVector.size() / 2;
+        const auto newPointsCnt = pointsCnt + edgesCnt;
+
         std::vector<double> updatedPointsFlatVector(newPointsCnt * 3);
 
-        for(auto edgeId = 0; edgeId < meshData.edgesCnt; ++edgeId)
+        for(auto edgeId = 0; edgeId < edgesCnt; ++edgeId)
         {
             const auto vid0 = meshData.edgeVidsFlatVector[edgeId * 2];
             const auto vid1 = meshData.edgeVidsFlatVector[edgeId * 2 + 1];
-            const auto index = meshData.pointsCnt + edgeId;
+            const auto index = pointsCnt + edgeId;
 
             for(int i = 0; i < 3; ++i)
                 updatedPointsFlatVector[index * 3 + i] = meshData.originalPointsFlatVector[vid0 * 3 + i] + meshData.originalPointsFlatVector[vid1 * 3 + i];
@@ -276,7 +272,7 @@ namespace AlgorithmAoS
         }
 
         //step2: update old vertices pos
-        for(auto vid = 0; vid < meshData.pointsCnt; vid++)
+        for(auto vid = 0; vid < pointsCnt; vid++)
         {
             const auto startIndex = meshData.vertexNeighborOffsetVector[vid];
             const auto endIndex = meshData.vertexNeighborOffsetVector[vid + 1];
@@ -319,10 +315,12 @@ namespace AlgorithmAoS
 
     std::vector<int> GetUpdatedTriangleVidsFlatVector(const InputMeshData& meshData)
     {
-        const int subTrianglesCnt = 4;
-        std::vector<int> newTrianglesVidsFlatVector(meshData.cellsCnt * subTrianglesCnt * 3);
+        constexpr auto subTrianglesCnt = 4;
+        const auto cellsCnt = meshData.triangleVidsFlatVector.size() / 3;
+        const auto pointsCnt = meshData.originalPointsFlatVector.size() / 3;
+        std::vector<int> newTrianglesVidsFlatVector(cellsCnt * subTrianglesCnt * 3);
 
-        for(auto cellID = 0; cellID < meshData.cellsCnt; ++cellID)
+        for(auto cellID = 0; cellID < cellsCnt; ++cellID)
         {
             //newVertices internally maps eid->points. eg, eid 0->newVertices[0]
             //here we need to know the index of point in updatedPoints
@@ -330,7 +328,7 @@ namespace AlgorithmAoS
             int newVids[3];
             for(int i = 0; i < 3; ++i)
             {
-                newVids[i] = meshData.triangleEidsFlatVector[cellID * 3 + i] + meshData.pointsCnt;
+                newVids[i] = meshData.triangleEidsFlatVector[cellID * 3 + i] + pointsCnt;
             }
 
             auto index = cellID * subTrianglesCnt;
@@ -373,7 +371,10 @@ namespace AlgorithmAoS
             const auto updatedTriangleVidsFlatVector = GetUpdatedTriangleVidsFlatVector(meshData);
 
             //set mesh topology
-            const auto newPointsCnt = meshData.pointsCnt + meshData.edgesCnt;
+            const auto pointsCnt = meshData.originalPointsFlatVector.size() / 3;
+            const auto edgesCnt = meshData.edgeVidsFlatVector.size() / 2;
+            const auto newPointsCnt = pointsCnt + edgesCnt;
+
             auto vtkPointsVec = vtkSmartPointer<vtkPoints>::New();
             for(auto vid = 0; vid < newPointsCnt; ++vid)
                 vtkPointsVec->InsertNextPoint(updatedPointsFlatVector[vid * 3 + 0], updatedPointsFlatVector[vid * 3 + 1], updatedPointsFlatVector[vid * 3 + 2]);
