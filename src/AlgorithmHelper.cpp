@@ -2,7 +2,6 @@
 
 #include <vtkPolyData.h>
 #include <vtkPointData.h>
-#include <vtkFeatureEdges.h>
 
 
 namespace AlgorithmHelper
@@ -26,57 +25,6 @@ namespace AlgorithmHelper
         }
 
         return points;
-    }
-
-    std::vector<unsigned int> GetBoundaryEdgeVidsFlatVector(vtkPolyData* mesh)
-    {
-        const auto arrayName = "OriginalIDs";
-
-        auto originalIDs = vtkSmartPointer<vtkIntArray>::New();
-        originalIDs->SetName(arrayName);
-        originalIDs->SetNumberOfComponents(1);
-        originalIDs->SetNumberOfTuples(mesh->GetNumberOfPoints());
-
-        for(vtkIdType i = 0; i < mesh->GetNumberOfPoints(); ++i)
-        {
-            originalIDs->SetValue(i, i);
-        }
-
-        mesh->GetPointData()->AddArray(originalIDs);
-
-        auto featureEdges = vtkSmartPointer<vtkFeatureEdges>::New();
-        featureEdges->SetInputData(mesh);
-        featureEdges->BoundaryEdgesOn();
-        featureEdges->ManifoldEdgesOff();
-        featureEdges->NonManifoldEdgesOff();
-        featureEdges->FeatureEdgesOff();
-        featureEdges->Update();
-
-        auto boundaryEdges = featureEdges->GetOutput();
-        vtkCellArray* lines = boundaryEdges->GetLines();
-
-        const auto edgesCnt = lines->GetNumberOfCells();
-        vtkDataArray* originalIDsArray = boundaryEdges->GetPointData()->GetArray(arrayName);
-        if(!originalIDsArray)
-        {
-            std::cerr << "Error: original ids array not found in output." << std::endl;
-            return {};
-        }
-
-        std::vector<unsigned int> boundaryEdgeVids(edgesCnt * 2);
-        for(auto i = 0; i < edgesCnt; i++)
-        {
-            auto cell = vtkSmartPointer<vtkGenericCell>::New();
-            boundaryEdges->GetCell(i, cell);
-
-            if(cell->GetCellType() == VTK_LINE)
-            {
-                boundaryEdgeVids[i * 2] = originalIDsArray->GetTuple1(cell->GetPointId(0));;
-                boundaryEdgeVids[i * 2 + 1] = originalIDsArray->GetTuple1(cell->GetPointId(1));;
-            }
-        }
-
-        return boundaryEdgeVids;
     }
 
     vtkSmartPointer<vtkCellArray> GetTriangleTopologyAsCellArray(const std::vector<unsigned int>& triangleVids)

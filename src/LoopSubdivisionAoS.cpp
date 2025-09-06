@@ -31,13 +31,17 @@ namespace AlgorithmAoS
 
     void InitializeEdgeTable(vtkPolyData* mesh, std::vector<unsigned int>& edgeVidsFlatVector,
                              std::vector<unsigned int>& triangleVidsFlatVector,
-                             std::unordered_map<std::pair<int, int>, unsigned int, PairHash>& vidsToEdgeMap)
+                             std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
+                             std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
+                             std::unordered_set<unsigned int>& boundaryEdgeIdsSet)
     {
         edgeVidsFlatVector.clear();
         vidsToEdgeMap.clear();
 
         const auto cellsCnt = mesh->GetNumberOfCells();
         triangleVidsFlatVector = std::vector<unsigned int>(cellsCnt * 3);
+
+        std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash> edgeVidsCountMap;
 
         //iterate through all triangles
         vtkCellArray* polys = mesh->GetPolys();
@@ -59,6 +63,8 @@ namespace AlgorithmAoS
 
                 //create a canonical edge key
                 const auto key = (v1 < v2) ? std::make_pair(v1, v2) : std::make_pair(v2, v1);
+                edgeVidsCountMap[key]++;
+
                 if(!vidsToEdgeMap.count(key))
                 {
                     vidsToEdgeMap[key] = edgeVidsFlatVector.size() / 2;
@@ -71,6 +77,20 @@ namespace AlgorithmAoS
             }
 
             ++cellId;
+        }
+
+        //construct boundary edge ids
+        boundaryEdgeVidsFlatVector.clear();
+        boundaryEdgeIdsSet.clear();
+        for(const auto& [edgeVids, count]: edgeVidsCountMap)
+        {
+            if(count == 1)
+            {
+                const auto eid = vidsToEdgeMap.at(edgeVids);
+                boundaryEdgeVidsFlatVector.push_back(edgeVids.first);
+                boundaryEdgeVidsFlatVector.push_back(edgeVids.second);
+                boundaryEdgeIdsSet.insert(eid);
+            }
         }
     }
 
@@ -128,8 +148,8 @@ namespace AlgorithmAoS
     }
 
     void ProcessTriangles(const size_t edgeCnt, const std::vector<unsigned int>& triangleVidsFlatVector,
-                          const std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
-                          const std::unordered_map<std::pair<int, int>, unsigned int, PairHash>& vidsToEdgeMap,
+                          std::unordered_set<unsigned int> boundaryEdgeIdsSet,
+                          const std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
                           std::vector<unsigned int>& triangleEidsFlatVector,
                           std::vector<unsigned int>& edgeNeighborVidsFlatVector,
                           std::vector<unsigned int>& edgeNeighborOffsetVector)
@@ -138,22 +158,6 @@ namespace AlgorithmAoS
 
         const auto cellsCnt = triangleVidsFlatVector.size() / 3;
         triangleEidsFlatVector = std::vector<unsigned int>(cellsCnt * 3);
-
-        //construct boundary eids
-        std::unordered_set<unsigned int> boundaryEidsSet;
-
-        if(!boundaryEdgeVidsFlatVector.empty())
-        {
-            for(auto i = 0; i < boundaryEdgeVidsFlatVector.size() / 2; ++i)
-            {
-                const auto startVid = boundaryEdgeVidsFlatVector[i * 2];
-                const auto endVid = boundaryEdgeVidsFlatVector[i * 2 + 1];
-
-                const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
-                const auto eid = vidsToEdgeMap.at(key);
-                boundaryEidsSet.insert(eid);
-            }
-        }
 
         //iterate through all triangles
         for(auto cellId = 0; cellId < cellsCnt; ++cellId)
@@ -176,7 +180,7 @@ namespace AlgorithmAoS
                 const auto eid = vidsToEdgeMap.at(key);
                 triangleEidsFlatVector[cellId * 3 + i] = eid;
 
-                if(boundaryEidsSet.count(eid))
+                if(boundaryEdgeIdsSet.count(eid))
                     continue;
 
                 const auto v3 = pointIds[(i + 2) % 3];
@@ -206,10 +210,10 @@ namespace AlgorithmAoS
 
         std::vector<unsigned int> edgeVidsFlatVector;
         std::vector<unsigned int> triangleVidsFlatVector;
-        std::unordered_map<std::pair<int, int>, unsigned int, PairHash> vidsToEdgeMap;
-        InitializeEdgeTable(mesh, edgeVidsFlatVector, triangleVidsFlatVector, vidsToEdgeMap);
-
-        const auto boundaryEdgeVidsFlatVector = AlgorithmHelper::GetBoundaryEdgeVidsFlatVector(mesh);
+        std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash> vidsToEdgeMap;
+        std::vector<unsigned int> boundaryEdgeVidsFlatVector;
+        std::unordered_set<unsigned int> boundaryEdgeIdsSet;
+        InitializeEdgeTable(mesh, edgeVidsFlatVector, triangleVidsFlatVector, vidsToEdgeMap, boundaryEdgeVidsFlatVector, boundaryEdgeIdsSet);
 
         std::vector<unsigned int> vertexNeighborVidsFlatVector;
         std::vector<unsigned int> vertexNeighborOffsetVector;
@@ -220,7 +224,7 @@ namespace AlgorithmAoS
         std::vector<unsigned int> triangleEidsFlatVector;
         std::vector<unsigned int> edgeNeighborVidsFlatVector;
         std::vector<unsigned int> edgeNeighborOffsetVector;
-        ProcessTriangles(edgesCnt, triangleVidsFlatVector, boundaryEdgeVidsFlatVector, vidsToEdgeMap,
+        ProcessTriangles(edgesCnt, triangleVidsFlatVector, boundaryEdgeIdsSet, vidsToEdgeMap,
                          triangleEidsFlatVector, edgeNeighborVidsFlatVector, edgeNeighborOffsetVector);
 
         InputMeshData meshData;
@@ -306,8 +310,9 @@ namespace AlgorithmAoS
                 const auto bracket_squared = inner_bracket * inner_bracket;
                 beta = (1.0 / n) * ((5.0 / 8.0) - bracket_squared);
 
+                const auto factor = (1.0 - n * beta);
                 for(int i = 0; i < 3; ++i)
-                    updatedPointsFlatVector[vid * 3 + i] = (1.0 - n * beta) * meshData.originalPointsFlatVector[vid * 3 + i];
+                    updatedPointsFlatVector[vid * 3 + i] = factor * meshData.originalPointsFlatVector[vid * 3 + i];
             }
 
             for(auto index = startIndex; index < endIndex; ++index)

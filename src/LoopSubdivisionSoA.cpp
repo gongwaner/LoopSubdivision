@@ -67,7 +67,9 @@ namespace AlgorithmSoA
     void InitializeEdgeTable(vtkPolyData* mesh,
                              std::vector<unsigned int>& edgeV0Vids, std::vector<unsigned int>& edgeV1Vids,
                              std::vector<unsigned int>& triangleV0Ids, std::vector<unsigned int>& triangleV1Ids, std::vector<unsigned int>& triangleV2Ids,
-                             std::unordered_map<std::pair<int, int>, unsigned int, PairHash>& vidsToEdgeMap)
+                             std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
+                             std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
+                             std::unordered_set<unsigned int>& boundaryEdgeIdsSet)
     {
         edgeV0Vids.clear();
         edgeV1Vids.clear();
@@ -77,6 +79,8 @@ namespace AlgorithmSoA
         triangleV0Ids = std::vector<unsigned int>(cellsCnt);
         triangleV1Ids = std::vector<unsigned int>(cellsCnt);
         triangleV2Ids = std::vector<unsigned int>(cellsCnt);
+
+        std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash> edgeVidsCountMap;
 
         //iterate through all triangles
         vtkCellArray* polys = mesh->GetPolys();
@@ -102,6 +106,8 @@ namespace AlgorithmSoA
 
                 //create a canonical edge key
                 const auto key = (v1 < v2) ? std::make_pair(v1, v2) : std::make_pair(v2, v1);
+                edgeVidsCountMap[key]++;
+
                 if(!vidsToEdgeMap.count(key))
                 {
                     vidsToEdgeMap[key] = edgeV0Vids.size();
@@ -112,6 +118,20 @@ namespace AlgorithmSoA
             }
 
             ++cellId;
+        }
+
+        //construct boundary edge ids
+        boundaryEdgeVidsFlatVector.clear();
+        boundaryEdgeIdsSet.clear();
+        for(const auto& [edgeVids, count]: edgeVidsCountMap)
+        {
+            if(count == 1)
+            {
+                const auto eid = vidsToEdgeMap.at(edgeVids);
+                boundaryEdgeVidsFlatVector.push_back(edgeVids.first);
+                boundaryEdgeVidsFlatVector.push_back(edgeVids.second);
+                boundaryEdgeIdsSet.insert(eid);
+            }
         }
     }
 
@@ -170,11 +190,14 @@ namespace AlgorithmSoA
     }
 
     void ProcessTriangles(const size_t edgesCnt,
-                          const std::vector<unsigned int>& triangleV0Vids, const std::vector<unsigned int>& triangleV1Vids,
+                          const std::vector<unsigned int>& triangleV0Vids,
+                          const std::vector<unsigned int>& triangleV1Vids,
                           const std::vector<unsigned int>& triangleV2Vids,
-                          const std::vector<unsigned int>& boundaryEdgeVidsFlatVector,
-                          const std::unordered_map<std::pair<int, int>, unsigned int, PairHash>& vidsToEdgeMap,
-                          std::vector<unsigned int>& triangleE0Ids, std::vector<unsigned int>& triangleE1Ids, std::vector<unsigned int>& triangleE2Ids,
+                          const std::unordered_set<unsigned int>& boundaryEdgeIdsSet,
+                          const std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash>& vidsToEdgeMap,
+                          std::vector<unsigned int>& triangleE0Ids,
+                          std::vector<unsigned int>& triangleE1Ids,
+                          std::vector<unsigned int>& triangleE2Ids,
                           std::vector<unsigned int>& edgeNeighborVidsFlatVector,
                           std::vector<unsigned int>& edgeNeighborOffsetVector)
     {
@@ -184,22 +207,6 @@ namespace AlgorithmSoA
         triangleE0Ids = std::vector<unsigned int>(cellsCnt);
         triangleE1Ids = std::vector<unsigned int>(cellsCnt);
         triangleE2Ids = std::vector<unsigned int>(cellsCnt);
-
-        //construct boundary eids
-        std::unordered_set<unsigned int> boundaryEidsSet;
-
-        if(!boundaryEdgeVidsFlatVector.empty())
-        {
-            for(auto i = 0; i < boundaryEdgeVidsFlatVector.size() / 2; ++i)
-            {
-                const auto startVid = boundaryEdgeVidsFlatVector[i * 2];
-                const auto endVid = boundaryEdgeVidsFlatVector[i * 2 + 1];
-
-                const auto key = (startVid < endVid) ? std::make_pair(startVid, endVid) : std::make_pair(endVid, startVid);
-                const auto eid = vidsToEdgeMap.at(key);
-                boundaryEidsSet.insert(eid);
-            }
-        }
 
         //iterate through all triangles
         for(auto cellId = 0; cellId < cellsCnt; ++cellId)
@@ -223,7 +230,7 @@ namespace AlgorithmSoA
                 const auto eid = vidsToEdgeMap.at(key);
                 eids[i] = eid;
 
-                if(boundaryEidsSet.count(eid))
+                if(boundaryEdgeIdsSet.count(eid))
                     continue;
 
                 const auto v3 = pointIds[(i + 2) % 3];
@@ -263,10 +270,11 @@ namespace AlgorithmSoA
         std::vector<unsigned int> triangleV0Ids;
         std::vector<unsigned int> triangleV1Ids;
         std::vector<unsigned int> triangleV2Ids;
-        std::unordered_map<std::pair<int, int>, unsigned int, PairHash> vidsToEdgeMap;
-        InitializeEdgeTable(mesh, edgeV0Vids, edgeV1Vids, triangleV0Ids, triangleV1Ids, triangleV2Ids, vidsToEdgeMap);
-
-        const auto boundaryEdgeVidsFlatVector = AlgorithmHelper::GetBoundaryEdgeVidsFlatVector(mesh);
+        std::unordered_map<std::pair<unsigned int, unsigned int>, unsigned int, PairHash> vidsToEdgeMap;
+        std::vector<unsigned int> boundaryEdgeVidsFlatVector;
+        std::unordered_set<unsigned int> boundaryEdgeIdsSet;
+        InitializeEdgeTable(mesh, edgeV0Vids, edgeV1Vids, triangleV0Ids, triangleV1Ids, triangleV2Ids,
+                            vidsToEdgeMap, boundaryEdgeVidsFlatVector, boundaryEdgeIdsSet);
 
         std::vector<unsigned int> vertexNeighborVidsFlatVector;
         std::vector<unsigned int> vertexNeighborOffsetVector;
@@ -280,7 +288,7 @@ namespace AlgorithmSoA
         std::vector<unsigned int> edgeNeighborVidsFlatVector;
         std::vector<unsigned int> edgeNeighborOffsetVector;
         ProcessTriangles(edgesCnt, triangleV0Ids, triangleV1Ids, triangleV2Ids,
-                         boundaryEdgeVidsFlatVector, vidsToEdgeMap,
+                         boundaryEdgeIdsSet, vidsToEdgeMap,
                          triangleE0Ids, triangleE1Ids, triangleE2Ids,
                          edgeNeighborVidsFlatVector, edgeNeighborOffsetVector);
 
